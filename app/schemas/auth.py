@@ -1,4 +1,5 @@
-from pydantic import BaseModel, EmailStr, ConfigDict, Field, Optional
+from pydantic import BaseModel
+from typing import Optional
 from datetime import date
 from uuid import UUID
 
@@ -13,3 +14,10 @@ class UserRegister(BaseModel):
 class UserLogin(BaseModel):
     username: str
     password: str
+
+class AccessTokenResponse(BaseModel):
+    access_token: str
+    refresh_token: str
+
+class RefreshRequest(BaseModel):
+    refresh_token: str
