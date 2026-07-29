@@ -3,7 +3,7 @@ from fastapi import FastAPI
 from app.database.base import Base
 from app.database.session_db import engine
 
-from app.routers import auth, users
+from app.routers import auth, users, friends
 
 Base.metadata.create_all(bind=engine)
 
@@ -15,3 +15,4 @@ def home():
 
 app.include_router(auth.router)
 app.include_router(users.router)
+app.include_router(friends.router)
