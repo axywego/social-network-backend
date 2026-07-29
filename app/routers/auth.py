@@ -89,7 +89,7 @@ def refresh(payload: RefreshRequest, db: Session = Depends(get_db)):
     return {"access_token": new_access_token, "refresh_token": raw_refresh_token}
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
-def logout(payload: RefreshToken, db: Session = Depends(get_db)):
+def logout(payload: RefreshRequest, db: Session = Depends(get_db)):
     token_hash = hashlib.sha256(payload.refresh_token.encode()).hexdigest()
 
     stored_token = db.query(RefreshToken).filter(RefreshToken.token_hash == token_hash).first()
