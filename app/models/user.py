@@ -16,5 +16,6 @@ class User(Base):
     last_name = Column(VARCHAR(30), nullable=False)
     patronymic = Column(VARCHAR(30))
     birthday = Column(Date)
+    avatar_url = Column(String)
 
     created_at = Column(DateTime, nullable=False, server_default=func.now())
