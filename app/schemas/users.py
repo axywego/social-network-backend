@@ -10,5 +10,6 @@ class UserOut(BaseModel):
     username: str
     first_name: str
     last_name: str
-    patronymic: Optional[str]
-    birthday: Optional[date]
+    patronymic: Optional[str] = None
+    birthday: Optional[date] = None
+    avatar_url: Optional[str] = None
