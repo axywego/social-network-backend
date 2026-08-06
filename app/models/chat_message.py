@@ -12,7 +12,7 @@ class ChatMessage(Base):
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
 
     content = Column(Text, nullable=True)
-    image = Column(Text, nullable=True)
+    image_url = Column(Text, nullable=True)
 
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     edited_at = Column(DateTime(timezone=True), nullable=True)

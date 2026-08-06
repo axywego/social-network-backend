@@ -9,21 +9,22 @@ class Chat(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     type = Column(String, nullable=False)
+    name = Column(String, nullable=True)
     user_a_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
     user_b_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
-    
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     __table_args__ = (
         CheckConstraint("type in ('direct', 'group')", name="check_type_valid"),
         CheckConstraint("""
-            (type = 'direct' and user_a_id is not null and user_b_id is not null and user_a_id < user_b_id)
+            (type = 'direct' and user_a_id is not null and user_b_id is not null and user_a_id < user_b_id and name is null)
             or
-            (type = 'group' and user_a_id is null and user_b_id is null)""", name="check_valid_table_variables"),
+            (type = 'group' and user_a_id is null and user_b_id is null and name is not null)""",
+            name="check_valid_table_variables"),
         Index(
             "idx_unique_direct_chat",
             "user_a_id", "user_b_id",
             unique=True,
-            postgresql_where=(type == "direct"),
+            postgresql_where=text("type = 'direct'"),
         ),
     )
