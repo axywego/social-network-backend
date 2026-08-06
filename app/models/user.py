@@ -18,4 +18,4 @@ class User(Base):
     birthday = Column(Date)
     avatar_url = Column(String)
 
-    created_at = Column(DateTime, nullable=False, server_default=func.now())
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
