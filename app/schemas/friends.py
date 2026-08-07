@@ -1,6 +1,6 @@
 from pydantic import BaseModel, ConfigDict
 from typing import Optional
-from datetime import date
+from datetime import date, datetime
 from uuid import UUID
 
 class FriendRequest(BaseModel):
@@ -15,3 +15,7 @@ class FriendOut(BaseModel):
     last_name: str
     patronymic: Optional[str] = None
     birthday: Optional[date] = None
+
+class FriendRequestOut(BaseModel):
+    user: FriendOut
+    created_at: datetime
