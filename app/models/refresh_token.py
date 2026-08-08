@@ -1,4 +1,3 @@
-import uuid
 from sqlalchemy import Column, Text, DateTime, BigInteger, Identity, ForeignKey, Index
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
