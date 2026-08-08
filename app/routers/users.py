@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from app.database.session_db import get_db
 from app.models.user import User
 
-from app.schemas.users import UserOut
+from app.schemas.users import UserOut, UserChange
 
 from app.core.dependencies import get_current_user
 
@@ -45,6 +45,20 @@ async def upload_avatar(file: UploadFile = File(...), current_user: User = Depen
     db.commit()
 
     return {"avatar_url": current_user.avatar_url}
+
+@router.put("/me/change_info", response_model=UserOut)
+def change_info(payload: UserChange, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    current_user.first_name = payload.first_name
+    current_user.last_name = payload.last_name
+    current_user.patronymic = payload.patronymic
+    current_user.bio = payload.bio
+    current_user.birthday = payload.birthday
+
+    db.commit()
+    db.refresh(current_user)
+
+    return current_user
+
 
 @router.get("/me", response_model=UserOut)
 def get_me(current_user: User = Depends(get_current_user)):

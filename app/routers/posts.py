@@ -9,6 +9,7 @@ from app.models.user import User
 from app.models.friendship import Friendship
 from app.models.post import Post
 from app.models.post_comment import PostComment
+from app.models.post_like import PostLike
 from app.schemas.posts import PostCommentCreate, PostCreate, PostOut
 
 from app.core.dependencies import get_current_user
@@ -26,6 +27,24 @@ router = APIRouter(prefix="/posts", tags=["posts"])
 POSTS_IMAGES_URL = "app/static/posts"
 ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 MAX_FILE_SIZE = 10 * 1024 * 1024
+
+def get_post_out(post: Post, db: Session) -> PostOut:
+    comments = db.query(PostComment).filter(PostComment.post_id == post.id).order_by(PostComment.created_at.desc()).all()
+    
+    likes = db.query(PostLike).filter(PostLike.post_id == post.id).count()
+
+    return PostOut(
+        post_id=post.id,
+        user_id=post.user_id,
+
+        content=post.content,
+        image_url=post.image_url,
+
+        created_at=post.created_at,
+
+        comments=comments,
+        likes=likes
+    )
 
 def build_post_image_url(post_id: int, filename: str | None) -> str | None:
     return f"/posts/{post_id}/images/{filename}" if filename else None
@@ -73,10 +92,54 @@ async def upload_post_image(
 
     return {"filename": filename}
 
-@router.post("/create_post")
+@router.delete("/{post_id}/unlike")
+def unlike_post(post_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    post = db.query(Post).filter(Post.id == post_id).first()
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+
+    liked_post = (
+        db.query(PostLike)
+        .filter(PostLike.post_id == post.id, PostLike.user_id == current_user.id)
+        .first()
+        )
+
+    if not liked_post:
+        raise HTTPException(status_code=400, detail="Post already unliked")
+
+    db.delete(liked_post)
+    db.commit()
+
+    return {"message": "Post unliked successful"}
+
+@router.post("/{post_id}/like")
+def like_post(post_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    post = db.query(Post).filter(Post.id == post_id).first()
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+
+    liked_post = (
+        db.query(PostLike)
+        .filter(PostLike.post_id == post.id, PostLike.user_id == current_user.id)
+        .first()
+        )
+
+    if liked_post:
+        raise HTTPException(status_code=400, detail="Post already liked")
+
+    new_like = PostLike(
+        post_id=post.id,
+        user_id=current_user.id
+    )
+    db.add(new_like)
+    db.commit()
+
+    return {"message": "Post liked successful"}
+
+@router.post("/create_post", response_model=PostOut)
 def create_post(payload: PostCreate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     if not payload.content and not payload.image_url:
-        raise HTTPException(status_code=400, detail="content or image is required")
+        raise HTTPException(status_code=400, detail="Content or image is required")
     
     new_post = Post(
         user_id=current_user.id,
@@ -86,8 +149,9 @@ def create_post(payload: PostCreate, current_user: User = Depends(get_current_us
 
     db.add(new_post)
     db.commit()
+    db.refresh(new_post)
 
-    return {"message": "Post created successful"}
+    return get_post_out(new_post, db)
 
 @router.post("/create_comment")
 def create_comment(payload: PostCommentCreate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -130,41 +194,14 @@ def get_recent_posts(current_user: User = Depends(get_current_user), db: Session
 
     posts = db.query(Post).filter(Post.user_id.in_(friend_ids)).order_by(Post.created_at.desc()).all()
 
-    return [
-        PostOut(
-            post_id=p.id,
-            user_id=p.user_id,
-            content=p.content,
-            image_url=build_post_image_url(p.id, p.image_url),
-            created_at=p.created_at
-        )
-        for p in posts
-    ]
+    return [get_post_out(p, db) for p in posts]
 
 @router.get("/me", response_model=list[PostOut])
 def get_my_posts(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     posts = db.query(Post).filter(Post.user_id == current_user.id).order_by(Post.created_at.desc()).all()
-    return [
-        PostOut(
-            post_id=p.id,
-            user_id=p.user_id,
-            content=p.content,
-            image_url=build_post_image_url(p.id, p.image_url),
-            created_at=p.created_at
-        )
-        for p in posts
-    ]
+    return [get_post_out(p, db) for p in posts]
 
 @router.get("/{user_id}", response_model=list[PostOut])
 def get_user_posts(user_id: uuid.UUID, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     posts = db.query(Post).filter(Post.user_id == user_id).order_by(Post.created_at.desc()).all()
-    return [
-        PostOut(
-            post_id=p.id,
-            user_id=p.user_id,
-            content=p.content,
-            image_url=build_post_image_url(p.id, p.image_url),
-            created_at=p.created_at
-        )
-        for p in posts
-    ]
+    return [get_post_out(p, db) for p in posts]
