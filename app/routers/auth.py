@@ -11,7 +11,7 @@ from app.core.security import hash_password, verify_password, create_access_toke
 
 import hashlib
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -64,7 +64,7 @@ def refresh(payload: RefreshRequest, db: Session = Depends(get_db)):
 
     stored_token = db.query(RefreshToken).filter(RefreshToken.token_hash == token_hash).first()
 
-    if not stored_token or stored_token.expires_at < datetime.now():
+    if not stored_token or stored_token.expires_at < datetime.now(timezone.utc):
         raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
 
     user = db.query(User).filter(User.id == stored_token.user_id).first()

@@ -11,12 +11,10 @@ class PostComment(Base):
     post_id = Column(BigInteger, ForeignKey("posts.id", ondelete="CASCADE"), nullable=False)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
 
-    content = Column(Text)
-    image_url = Column(Text)
+    content = Column(Text, nullable=False)
 
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     __table_args__ = (
-        CheckConstraint("content is not null or image_url is not null", name="check_post_data"),
-        Index("idx_post_comments_post_id_created_at", "post_id", desc("created_at"))
+        Index("idx_post_comments_post_id_created_at", "post_id", desc("created_at")),
     )

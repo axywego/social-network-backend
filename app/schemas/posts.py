@@ -8,7 +8,6 @@ class PostCommentCreate(BaseModel):
     post_id: int
 
     content: Optional[str] = None
-    image_url: Optional[str] = None
 
 class PostCreate(BaseModel):
     content: Optional[str] = None
@@ -20,15 +19,24 @@ class PostCommentOut(BaseModel):
     user_id: UUID
 
     content: Optional[str] = None
-    image_url: Optional[str] = None
 
     created_at: datetime
+
+class PostAuthor(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    first_name: str
+    last_name: str
+
+    avatar_url: str
 
 class PostOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     post_id: int
-    user_id: UUID
+
+    author: PostAuthor
 
     content: Optional[str] = None
     image_url: Optional[str] = None
@@ -37,3 +45,5 @@ class PostOut(BaseModel):
 
     comments: List[PostCommentOut] = Field(default_factory=list)
     likes: int
+
+    liked_by_me: bool = False
