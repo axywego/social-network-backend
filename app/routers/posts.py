@@ -10,7 +10,7 @@ from app.models.friendship import Friendship
 from app.models.post import Post
 from app.models.post_comment import PostComment
 from app.models.post_like import PostLike
-from app.schemas.posts import PostCommentCreate, PostCreate, PostOut
+from app.schemas.posts import PostCommentCreate, PostCreate, PostAuthor, PostOut, PostCommentOut
 
 from app.core.dependencies import get_current_user
 
@@ -24,18 +24,28 @@ import datetime
 
 router = APIRouter(prefix="/posts", tags=["posts"])
 
-POSTS_IMAGES_URL = "app/static/posts"
+POSTS_IMAGES_DIR = "app/static/posts"
 ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 MAX_FILE_SIZE = 10 * 1024 * 1024
 
-def get_post_out(post: Post, db: Session) -> PostOut:
+def get_post_out(post: Post, db: Session, current_user: User) -> PostOut:
     comments = db.query(PostComment).filter(PostComment.post_id == post.id).order_by(PostComment.created_at.desc()).all()
     
     likes = db.query(PostLike).filter(PostLike.post_id == post.id).count()
 
+    liked_by_me = db.query(PostLike).filter(
+        PostLike.post_id == post.id, PostLike.user_id == current_user.id
+    ).first() is not None
+
     return PostOut(
         post_id=post.id,
-        user_id=post.user_id,
+
+        author=PostAuthor(
+            id=current_user.id,
+            first_name=current_user.first_name,
+            last_name=current_user.last_name,
+            avatar_url=current_user.avatar_url
+        ),
 
         content=post.content,
         image_url=post.image_url,
@@ -43,7 +53,8 @@ def get_post_out(post: Post, db: Session) -> PostOut:
         created_at=post.created_at,
 
         comments=comments,
-        likes=likes
+        likes=likes,
+        liked_by_me=liked_by_me
     )
 
 def build_post_image_url(post_id: int, filename: str | None) -> str | None:
@@ -52,7 +63,7 @@ def build_post_image_url(post_id: int, filename: str | None) -> str | None:
 @router.get("/{post_id}/images/{filename}")
 def get_post_image(post_id: int, filename: str, db: Session = Depends(get_db)):
     filename = os.path.basename(filename)
-    filepath = os.path.join(POSTS_IMAGES_URL, str(post_id), filename)
+    filepath = os.path.join(POSTS_IMAGES_DIR, str(post_id), filename)
     if not os.path.isfile(filepath):
         raise HTTPException(status_code=404, detail="Image not found")
     return FileResponse(filepath)
@@ -79,18 +90,27 @@ async def upload_post_image(
     if len(contents) > MAX_FILE_SIZE:
         raise HTTPException(status_code=400, detail="File too large")
 
-    filename = f"{uuid.uuid4()}{ext}"
-    post_dir = os.path.join(POSTS_IMAGES_URL, str(post_id))
-    os.makedirs(post_dir, exist_ok=True)
+    # filename = f"{uuid.uuid4()}{ext}"
+    # post_dir = os.path.join(POSTS_IMAGES_URL, str(post_id))
+    # os.makedirs(post_dir, exist_ok=True)
 
-    filepath = os.path.join(post_dir, filename)
+    # filepath = os.path.join(post_dir, filename)
+    # with open(filepath, "wb") as f:
+    #     f.write(contents)
+
+    # post.image_url = filename
+    # db.commit()
+
+    filename = f"{uuid.uuid4()}{ext}"
+    filepath = os.path.join(POSTS_IMAGES_DIR, filename)
+    
     with open(filepath, "wb") as f:
         f.write(contents)
 
-    post.image_url = filename
+    post.image_url = f"/static/posts/{filename}"
     db.commit()
 
-    return {"filename": filename}
+    return {"filename": post.image_url}
 
 @router.delete("/{post_id}/unlike")
 def unlike_post(post_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -151,12 +171,12 @@ def create_post(payload: PostCreate, current_user: User = Depends(get_current_us
     db.commit()
     db.refresh(new_post)
 
-    return get_post_out(new_post, db)
+    return get_post_out(new_post, db, current_user)
 
-@router.post("/create_comment")
+@router.post("/create_comment", response_model=PostCommentOut)
 def create_comment(payload: PostCommentCreate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    if not payload.content and not payload.image_url:
-        raise HTTPException(status_code=400, detail="content or image is required")
+    if not payload.content:
+        raise HTTPException(status_code=400, detail="content is required")
     
     post = db.query(Post).filter(Post.id == payload.post_id).first()
     if not post:
@@ -165,14 +185,14 @@ def create_comment(payload: PostCommentCreate, current_user: User = Depends(get_
     new_comment = PostComment(
         post_id=payload.post_id,
         user_id=current_user.id,
-        content=payload.content,
-        image_url=payload.image_url
+        content=payload.content
     )
 
     db.add(new_comment)
     db.commit()
+    db.refresh(new_comment)
 
-    return {"message": "Comment created successful"}
+    return new_comment
 
 @router.get("/recent", response_model=list[PostOut])
 def get_recent_posts(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -194,14 +214,14 @@ def get_recent_posts(current_user: User = Depends(get_current_user), db: Session
 
     posts = db.query(Post).filter(Post.user_id.in_(friend_ids)).order_by(Post.created_at.desc()).all()
 
-    return [get_post_out(p, db) for p in posts]
+    return [get_post_out(p, db, current_user) for p in posts]
 
 @router.get("/me", response_model=list[PostOut])
 def get_my_posts(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     posts = db.query(Post).filter(Post.user_id == current_user.id).order_by(Post.created_at.desc()).all()
-    return [get_post_out(p, db) for p in posts]
+    return [get_post_out(p, db, current_user) for p in posts]
 
 @router.get("/{user_id}", response_model=list[PostOut])
 def get_user_posts(user_id: uuid.UUID, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     posts = db.query(Post).filter(Post.user_id == user_id).order_by(Post.created_at.desc()).all()
-    return [get_post_out(p, db) for p in posts]
+    return [get_post_out(p, db, current_user) for p in posts]
