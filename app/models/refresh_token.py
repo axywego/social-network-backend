@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import Column, String, DateTime, BigInteger, Identity, ForeignKey
+from sqlalchemy import Column, String, DateTime, BigInteger, Identity, ForeignKey, Index
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
 from app.database.base import Base
@@ -13,3 +13,7 @@ class RefreshToken(Base):
     token_hash = Column(String, nullable=False, unique=True)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     expires_at = Column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (
+        Index("idx_refresh_tokens_user_id", "user_id")
+    )

@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import Column, String, DateTime, VARCHAR, Date, BigInteger, Identity, ForeignKey, CheckConstraint
+from sqlalchemy import Column, String, DateTime, BigInteger, Identity, ForeignKey, CheckConstraint, UniqueConstraint, Index
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
 from app.database.base import Base
@@ -18,6 +18,8 @@ class Friendship(Base):
 
     __table_args__ = (
         CheckConstraint("status in ('pending', 'accepted')", name ="check_status_valid"),
-        CheckConstraint("user1 <> user2", name ="check_users_different"),
-        CheckConstraint("user1 < user2", name ="check_users_order")
+        CheckConstraint("user1 < user2", name="check_users_order"),
+        UniqueConstraint("user1, user2", name="unique_friendship"),
+        
+        Index("idx_friendships_user2", "user2")
     )
