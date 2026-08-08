@@ -14,5 +14,5 @@ class RefreshToken(Base):
     expires_at = Column(DateTime(timezone=True), nullable=False)
 
     __table_args__ = (
-        Index("idx_refresh_tokens_user_id", "user_id")
+        Index("idx_refresh_tokens_user_id", "user_id"),
     )

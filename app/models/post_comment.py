@@ -3,13 +3,13 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
 from app.database.base import Base
 
-class Post(Base):
-    __table_name__ = "post_comments"
+class PostComment(Base):
+    __tablename__ = "post_comments"
 
     id = Column(BigInteger, Identity(), primary_key=True)
 
-    post_id = Column(BigInteger, ForeignKey("posts.id", ondelete="CASCADE"), nullabe=False)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullabe=False)
+    post_id = Column(BigInteger, ForeignKey("posts.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
 
     content = Column(Text)
     image_url = Column(Text)

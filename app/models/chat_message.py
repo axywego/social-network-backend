@@ -8,16 +8,15 @@ class ChatMessage(Base):
 
     id = Column(BigInteger, Identity(), primary_key=True)
     chat_id = Column(UUID(as_uuid=True), ForeignKey("chats.id", ondelete="CASCADE"), nullable=False)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
 
-    content = Column(Text, nullable=True)
-    image_url = Column(Text, nullable=True)
+    content = Column(Text)
+    image_url = Column(Text)
 
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
-    edited_at = Column(DateTime(timezone=True), nullable=True)
-    deleted_at = Column(DateTime(timezone=True), nullable=True)
+    edited_at = Column(DateTime(timezone=True))
 
     __table_args__ = (
-        CheckConstraint("content is not null or image is not null", name="check_content_or_image"),
+        CheckConstraint("content is not null or image_url is not null", name="check_content_or_image"),
         Index("idx_chat_message_chat_id_created_at", "chat_id", desc("created_at")),
     )

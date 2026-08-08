@@ -9,7 +9,7 @@ class Chat(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     type = Column(Text, nullable=False)
 
-    name = Column(Text, nullable=True)
+    name = Column(Text)
 
     user_a_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
     user_b_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))

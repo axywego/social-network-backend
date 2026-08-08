@@ -4,11 +4,11 @@ from sqlalchemy.sql import func
 from app.database.base import Base
 
 class Post(Base):
-    __table_name__ = "posts"
+    __tablename__ = "posts"
 
     id = Column(BigInteger, Identity(), primary_key=True)
 
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullabe=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
 
     content = Column(Text)
     image_url = Column(Text)

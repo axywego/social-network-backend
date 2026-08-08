@@ -16,6 +16,6 @@ class User(Base):
     patronymic = Column(String(30))
     bio = Column(String(200))
     birthday = Column(Date)
-    avatar_url = Column(String)
+    avatar_url = Column(Text)
 
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())

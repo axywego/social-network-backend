@@ -12,7 +12,7 @@ class ChatUser(Base):
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
 
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
-    left_at = Column(DateTime(timezone=True), nullable=True)
+    left_at = Column(DateTime(timezone=True))
 
     __table_args__ = (
         UniqueConstraint("chat_id", "user_id", name="uq_chat_user_chat_id_user_id"),
