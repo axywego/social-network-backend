@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import Column, String, DateTime, VARCHAR, Date, text
+from sqlalchemy import Column, String, Text, DateTime, Date, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
 from app.database.base import Base
@@ -9,13 +9,13 @@ class User(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
 
-    username = Column(VARCHAR(32), unique=True, nullable=False)
-    password_hash = Column(String, nullable=False)
+    username = Column(String(32), unique=True, nullable=False)
+    password_hash = Column(Text, nullable=False)
 
-    first_name = Column(VARCHAR(30), nullable=False)
-    last_name = Column(VARCHAR(30), nullable=False)
-    patronymic = Column(VARCHAR(30))
-    bio = Column(VARCHAR(200))
+    first_name = Column(String(30), nullable=False)
+    last_name = Column(String(30), nullable=False)
+    patronymic = Column(String(30))
+    bio = Column(String(200))
     birthday = Column(Date)
     avatar_url = Column(String)
 

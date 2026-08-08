@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import Column, String, DateTime, BigInteger, Identity, ForeignKey, CheckConstraint, UniqueConstraint, Index
+from sqlalchemy import Column, Text, DateTime, BigInteger, Identity, ForeignKey, CheckConstraint, UniqueConstraint, Index
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
 from app.database.base import Base
@@ -12,7 +12,7 @@ class Friendship(Base):
     user2 = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     initiator = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
 
-    status = Column(String, nullable=False, server_default="pending")
+    status = Column(Text, nullable=False, server_default="pending")
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
@@ -20,6 +20,6 @@ class Friendship(Base):
         CheckConstraint("status in ('pending', 'accepted')", name ="check_status_valid"),
         CheckConstraint("user1 < user2", name="check_users_order"),
         UniqueConstraint("user1, user2", name="unique_friendship"),
-        
+
         Index("idx_friendships_user2", "user2")
     )
