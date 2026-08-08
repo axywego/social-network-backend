@@ -10,7 +10,7 @@ from app.models.friendship import Friendship
 from app.models.post import Post
 from app.models.post_comment import PostComment
 from app.models.post_like import PostLike
-from app.schemas.posts import PostCommentCreate, PostCreate, PostAuthor, PostOut, PostCommentOut
+from app.schemes.posts import PostCommentCreate, PostCreate, PostAuthor, PostOut, PostCommentOut
 
 from app.core.dependencies import get_current_user
 

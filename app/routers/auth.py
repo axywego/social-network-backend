@@ -5,7 +5,7 @@ from app.database.session_db import get_db
 from app.models.user import User
 from app.models.refresh_token import RefreshToken
 
-from app.schemas.auth import UserRegister, UserLogin, AccessTokenResponse, RefreshRequest
+from app.schemes.auth import UserRegister, UserLogin, AccessTokenResponse, RefreshRequest
 
 from app.core.security import hash_password, verify_password, create_access_token, create_refresh_token
 

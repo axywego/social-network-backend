@@ -6,7 +6,7 @@ from app.database.session_db import get_db
 from app.models.user import User
 from app.models.friendship import Friendship
 
-from app.schemas.friends import FriendRequest, FriendOut, FriendRequestOut
+from app.schemes.friends import FriendRequest, FriendOut, FriendRequestOut
 
 from app.core.dependencies import get_current_user
 

@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from app.database.session_db import get_db
 from app.models.user import User
 
-from app.schemas.users import UserOut, UserChange
+from app.schemes.users import UserOut, UserChange
 
 from app.core.dependencies import get_current_user
 

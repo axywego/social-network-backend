@@ -10,7 +10,7 @@ from app.models.chat import Chat
 from app.models.chat_user import ChatUser
 from app.models.chat_message import ChatMessage
 
-from app.schemas.chats import ChatCreate, ChatPreview, MessageCreate, MessageOut
+from app.schemes.chats import ChatCreate, ChatPreview, MessageCreate, MessageOut
 
 from app.core.dependencies import get_current_user
 
