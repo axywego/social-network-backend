@@ -5,7 +5,7 @@ from fastapi.staticfiles import StaticFiles
 from app.database.base import Base
 from app.database.session_db import engine
 
-from app.routers import auth, users, friends, chats
+from app.routers import auth, users, friends, chats, posts
 
 Base.metadata.create_all(bind=engine)
 
@@ -29,3 +29,4 @@ app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(friends.router)
 app.include_router(chats.router)
+app.include_router(posts.router)
