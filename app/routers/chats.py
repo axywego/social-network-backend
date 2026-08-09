@@ -1,5 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, WebSocket, WebSocketDisconnect, Query
 from fastapi.responses import FileResponse
+from fastapi.encoders import jsonable_encoder
+from jose import JWTError, jwt
+
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
@@ -10,11 +13,13 @@ from app.models.chat import Chat
 from app.models.chat_user import ChatUser
 from app.models.chat_message import ChatMessage
 
-from app.schemes.chats import ChatCreate, ChatPreview, MessageCreate, MessageOut
+from app.schemes.chats import ChatCreate, ChatPreview, MessageCreate, MessageOut, AddRemoveUserFromChat
+from app.schemes.users import UserOut
 
-from app.core.dependencies import get_current_user
-
+from app.core.dependencies import get_current_user, get_user_from_token
 from app.core.utils import get_ordered_pair
+
+from app.ws.manager import manager
 
 import os
 
@@ -37,6 +42,30 @@ def is_membership(db: Session, chat_id: uuid.UUID, user_id: uuid.UUID) -> bool:
         .filter(ChatUser.chat_id == chat_id, ChatUser.user_id == user_id, ChatUser.left_at.is_(None))
         .first() is not None
     )
+
+# websocket
+
+@router.websocket("/ws/{chat_id}")
+async def chat_websocket(
+    websocket: WebSocket,
+    chat_id: uuid.UUID,
+    token: str = Query(...),
+    db: Session = Depends(get_db)
+):
+    user = get_user_from_token(token, db)
+    if not user or not is_membership(db, chat_id, user.id):
+        await websocket.close(code=1008)
+        return
+
+    await manager.connect(str(chat_id), websocket)
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        manager.disconnect(str(chat_id), websocket)
+
+
+#crud
 
 @router.post("/{chat_id}/images")
 async def upload_chat_image(
@@ -109,9 +138,21 @@ def get_messages_from_chat(
         for m in finded_messages
     ]
 
+@router.get("/{chat_id}/members", response_model=list[UserOut])
+def get_chat_members(chat_id: uuid.UUID, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if not is_membership(db, chat_id, current_user.id):
+        raise HTTPException(status_code=403, detail="Not a member of this chat")
+
+    members = (
+        db.query(User)
+        .join(ChatUser, ChatUser.user_id == User.id)
+        .filter(ChatUser.chat_id == chat_id, ChatUser.left_at.is_(None))
+        .all()
+    )
+    return members
 
 @router.post("/{chat_id}/messages", response_model=MessageOut)
-def send_message(
+async def send_message(
     chat_id: uuid.UUID,
     payload: MessageCreate,
     current_user: User = Depends(get_current_user),
@@ -131,12 +172,76 @@ def send_message(
     db.commit()
     db.refresh(message)
 
-    return MessageOut(
+    result = MessageOut(
         sender_id=message.user_id,
         content=message.content,
         image_url=build_image_url(chat_id, message.image_url),
         created_at=message.created_at
     )
+
+    await manager.broadcast(str(chat_id), jsonable_encoder(result))
+
+    return result
+
+@router.post("/add_user")
+def add_user_to_chat(
+    payload: AddRemoveUserFromChat,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    chat = db.query(Chat).filter(Chat.id == payload.chat_id).first()
+    if not chat:
+        raise HTTPException(status_code=404, detail="Chat not found")
+
+    if not is_membership(db, chat.id, current_user.id):
+        raise HTTPException(status_code=403, detail="Cannot add user")
+
+    add_user = db.query(User).filter(User.id == payload.user_id).first()
+    if not add_user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    user_is_added = db.query(ChatUser).filter(ChatUser.chat_id == chat.id, ChatUser.user_id == add_user.id).first()
+
+    if user_is_added:
+        raise HTTPException(status_code=404, detail="User already added")
+
+    new_row = ChatUser(
+        chat_id=chat.id,
+        user_id=add_user.id
+    )
+
+    db.add(new_row)
+    db.commit()
+
+    return {"message": "User added to chat successful"}
+
+
+@router.delete("/remove_user")
+def remove_user_from_chat(
+    payload: AddRemoveUserFromChat,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    chat = db.query(Chat).filter(Chat.id == payload.chat_id).first()
+    if not chat:
+        raise HTTPException(status_code=404, detail="Chat not found")
+
+    if not is_membership(db, chat.id, current_user.id):
+        raise HTTPException(status_code=403, detail="Cannot remove user")
+
+    remove_user = db.query(User).filter(User.id == payload.user_id).first()
+    if not remove_user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    user_is_added = db.query(ChatUser).filter(ChatUser.chat_id == chat.id, ChatUser.user_id == remove_user.id).first()
+
+    if not user_is_added:
+        raise HTTPException(status_code=404, detail="User already removed")
+
+    db.delete(user_is_added)
+    db.commit()
+
+    return {"message": "User removed from chat successful"}
 
 @router.get("/{user_id}", response_model=ChatPreview)
 def get_direct_chat(user_id: uuid.UUID, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -150,6 +255,7 @@ def get_direct_chat(user_id: uuid.UUID, current_user: User = Depends(get_current
 
     return ChatPreview(
         chat_id=chat.id,
+        type="direct",
         name=f"{other_user.first_name} {other_user.last_name}",
         last_message=None,
         last_message_time=None
@@ -195,6 +301,7 @@ def create_chat(payload: ChatCreate, current_user: User = Depends(get_current_us
 
         return ChatPreview(
             chat_id=new_chat.id,
+            type="direct",
             name=f"{other_user.first_name} {other_user.last_name}",
             last_message=None,
             last_message_time=None
@@ -219,6 +326,7 @@ def create_chat(payload: ChatCreate, current_user: User = Depends(get_current_us
 
         return ChatPreview(
             chat_id=new_chat.id,
+            type="group",
             name=new_chat.name,
             last_message=None,
             last_message_time=None
@@ -240,6 +348,7 @@ def get_all_chats(current_user: User = Depends(get_current_user), db: Session = 
 
         previews.append(ChatPreview(
             chat_id=chat.id,
+            type="direct",
             name=f"{other_user.first_name} {other_user.last_name}" if other_user else "Unknown",
             last_message=(last_message.content if last_message.content is not None else "Image") if last_message else None,
             last_message_time=last_message.created_at if last_message else None,
@@ -257,6 +366,7 @@ def get_all_chats(current_user: User = Depends(get_current_user), db: Session = 
 
         previews.append(ChatPreview(
             chat_id=chat.id,
+            type="group",
             name=chat.name,
             last_message=(last_message.content if last_message.content is not None else "Image") if last_message else None,
             last_message_time=last_message.created_at if last_message else None,

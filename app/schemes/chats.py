@@ -22,10 +22,15 @@ class ChatPreview(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     chat_id: UUID
+    type: Literal["direct", "group"]
     name: str
     last_message: Optional[str] = None
     last_message_time: Optional[datetime] = None
     avatar_url: Optional[str] = None
+
+class AddRemoveUserFromChat(BaseModel):
+    chat_id: UUID
+    user_id: UUID
 
 class MessageOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
