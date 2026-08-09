@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Text, DateTime, Date, text
+from sqlalchemy import Column, String, Text, DateTime, Date, text, Index
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
 from app.database.base import Base
@@ -19,3 +19,24 @@ class User(Base):
     avatar_url = Column(Text)
 
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    __table_args__ = (
+        Index(
+            "idx_users_username_trgm",
+            "username",
+            postgresql_using="gin",
+            postgresql_ops={"username": "gin_trgm_ops"}
+        ),
+        Index(
+            "idx_users_first_name_trgm",
+            "username",
+            postgresql_using="gin",
+            postgresql_ops={"first_name": "gin_trgm_ops"}
+        ),
+        Index(
+            "idx_users_last_name_trgm",
+            "username",
+            postgresql_using="gin",
+            postgresql_ops={"last_name": "gin_trgm_ops"}
+        )
+    )

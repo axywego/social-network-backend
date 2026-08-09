@@ -7,19 +7,25 @@ from uuid import UUID
 class PostCommentCreate(BaseModel):
     post_id: int
 
-    content: Optional[str] = None
+    content: str 
 
 class PostCreate(BaseModel):
     content: Optional[str] = None
     image_url: Optional[str] = None
 
+class PostCommentAuthor(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    
+    id: UUID
+    first_name: str
+    last_name: str
+    avatar_url: Optional[str] = None
+
 class PostCommentOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    user_id: UUID
-
-    content: Optional[str] = None
-
+    author: PostCommentAuthor
+    content: str
     created_at: datetime
 
 class PostAuthor(BaseModel):
@@ -28,13 +34,12 @@ class PostAuthor(BaseModel):
     id: UUID
     first_name: str
     last_name: str
-
-    avatar_url: str
+    avatar_url: Optional[str] = None
 
 class PostOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    post_id: int
+    id: int
 
     author: PostAuthor
 
@@ -44,6 +49,6 @@ class PostOut(BaseModel):
     created_at: datetime
 
     comments: List[PostCommentOut] = Field(default_factory=list)
-    likes: int
 
+    likes: int
     liked_by_me: bool = False

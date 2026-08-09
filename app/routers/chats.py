@@ -94,7 +94,7 @@ def get_messages_from_chat(
 
     finded_messages = (
         db.query(ChatMessage)
-        .filter(ChatMessage.chat_id == chat_id, ChatMessage.deleted_at.is_(None))
+        .filter(ChatMessage.chat_id == chat_id)
         .order_by(ChatMessage.created_at.asc())
         .all()
     )
@@ -136,6 +136,23 @@ def send_message(
         content=message.content,
         image_url=build_image_url(chat_id, message.image_url),
         created_at=message.created_at
+    )
+
+@router.get("/{user_id}", response_model=ChatPreview)
+def get_direct_chat(user_id: uuid.UUID, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    min_id, max_id = get_ordered_pair(user_id, current_user.id)
+    chat = db.query(Chat).filter(Chat.user_a_id == min_id, Chat.user_b_id == max_id).first()
+
+    if not chat:
+        raise HTTPException(status_code=404, detail="Chat not found")
+
+    other_user = db.query(User).filter(User.id == user_id).first()
+
+    return ChatPreview(
+        chat_id=chat.id,
+        name=f"{other_user.first_name} {other_user.last_name}",
+        last_message=None,
+        last_message_time=None
     )
 
 @router.post("/create_chat", response_model=ChatPreview)

@@ -13,8 +13,7 @@ class FriendOut(BaseModel):
     username: str
     first_name: str
     last_name: str
-    patronymic: Optional[str] = None
-    birthday: Optional[date] = None
+    avatar_url: Optional[str] = None
 
 class FriendRequestOut(BaseModel):
     user: FriendOut

@@ -1,10 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.database.session_db import get_db
 from app.models.user import User
 
-from app.schemes.users import UserOut, UserChange
+from app.schemes.users import UserOut, UserChange, PaginatedUsers
 
 from app.core.dependencies import get_current_user
 
@@ -63,6 +64,35 @@ def change_info(payload: UserChange, current_user: User = Depends(get_current_us
 @router.get("/me", response_model=UserOut)
 def get_me(current_user: User = Depends(get_current_user)):
     return current_user
+
+@router.get("/search", response_model=PaginatedUsers)
+def search_users(
+    q: str = Query(..., min_length=1, max_length=100),
+    limit: int = Query(20, ge=1, le=50),
+    offset: int = Query(0, ge=0),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    search_term = f"%{q.strip()}%"
+
+    base_query = db.query(User).filter(
+        User.id != current_user.id,
+        or_(
+            User.username.ilike(search_term),
+            User.first_name.ilike(search_term),
+            User.last_name.ilike(search_term)
+        )
+    )
+
+    total = base_query.count()
+    users = base_query.order_by(User.username).limit(limit).offset(offset).all()
+
+    return PaginatedUsers(
+        items=users,
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
 
 @router.get("/{user_id}", response_model=UserOut)
 def get_user_by_id(user_id: uuid.UUID, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):

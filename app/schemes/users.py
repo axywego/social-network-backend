@@ -1,5 +1,5 @@
 from pydantic import BaseModel, EmailStr, ConfigDict, Field
-from typing import Optional
+from typing import Optional, List
 
 from datetime import date
 from uuid import UUID
@@ -22,3 +22,11 @@ class UserOut(BaseModel):
     bio: Optional[str] = None
     birthday: Optional[date] = None
     avatar_url: Optional[str] = None
+
+class PaginatedUsers(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    items: List[UserOut]
+    total: int
+    limit: int
+    offset: int
