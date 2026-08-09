@@ -28,13 +28,15 @@ POSTS_IMAGES_DIR = "app/static/posts"
 ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 MAX_FILE_SIZE = 10 * 1024 * 1024
 
-def get_post_out(post: Post, db: Session, user: User) -> PostOut:
+def get_post_out(post: Post, db: Session, current_user: User) -> PostOut:
     comments = db.query(PostComment).filter(PostComment.post_id == post.id).order_by(PostComment.created_at.desc()).all()
+
+    author = db.query(User).filter(User.id == post.user_id).first()
     
     likes = db.query(PostLike).filter(PostLike.post_id == post.id).count()
 
     liked_by_me = db.query(PostLike).filter(
-        PostLike.post_id == post.id, PostLike.user_id == user.id
+        PostLike.post_id == post.id, PostLike.user_id == current_user.id
     ).first() is not None
 
     comments_out = [PostCommentOut(
@@ -46,7 +48,7 @@ def get_post_out(post: Post, db: Session, user: User) -> PostOut:
     return PostOut(
         id=post.id,
 
-        author=user,
+        author=author,
 
         content=post.content,
         image_url=post.image_url,
@@ -112,7 +114,7 @@ def unlike_post(post_id: int, current_user: User = Depends(get_current_user), db
         db.query(PostLike)
         .filter(PostLike.post_id == post.id, PostLike.user_id == current_user.id)
         .first()
-        )
+    )
 
     if not liked_post:
         raise HTTPException(status_code=400, detail="Post already unliked")
@@ -201,14 +203,14 @@ def get_recent_posts(current_user: User = Depends(get_current_user), db: Session
             ),
             Friendship.initiator == current_user.id
         ),
-
     ).all()
 
-    friend_ids = [f.user2 if f.user1 == current_user.id else f.user1 for f in friendships]
+    ids = [f.user2 if f.user1 == current_user.id else f.user1 for f in friendships]
+    ids.append(current_user.id)
 
-    posts = db.query(Post).filter(Post.user_id.in_(friend_ids)).order_by(Post.created_at.desc()).all()
+    posts = db.query(Post).filter(Post.user_id.in_(ids)).order_by(Post.created_at.desc()).all()
 
-    return [get_post_out(p, db, db.query(User).filter(User.id == p.user_id).first()) for p in posts]
+    return [get_post_out(p, db, current_user) for p in posts]
 
 @router.get("/me", response_model=list[PostOut])
 def get_my_posts(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -221,4 +223,4 @@ def get_user_posts(user_id: uuid.UUID, current_user: User = Depends(get_current_
     other_user = db.query(User).filter(User.id == user_id).first()
     if not other_user:
         raise HTTPException(status_code=404, detail="User not found")
-    return [get_post_out(p, db, other_user) for p in posts]
+    return [get_post_out(p, db, current_user) for p in posts]

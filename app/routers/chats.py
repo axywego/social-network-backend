@@ -240,9 +240,10 @@ def get_all_chats(current_user: User = Depends(get_current_user), db: Session = 
 
         previews.append(ChatPreview(
             chat_id=chat.id,
-            name=other_user.username if other_user else "Unknown",
+            name=f"{other_user.first_name} {other_user.last_name}" if other_user else "Unknown",
             last_message=(last_message.content if last_message.content is not None else "Image") if last_message else None,
             last_message_time=last_message.created_at if last_message else None,
+            avatar_url=other_user.avatar_url
         ))
 
     group_chats = (
@@ -259,8 +260,9 @@ def get_all_chats(current_user: User = Depends(get_current_user), db: Session = 
             name=chat.name,
             last_message=(last_message.content if last_message.content is not None else "Image") if last_message else None,
             last_message_time=last_message.created_at if last_message else None,
+            avatar_url=chat.avatar_url
         ))
 
-    previews.sort(key=lambda p: p.last_message_time or datetime.datetime.min, reverse=True)
+    previews.sort(key=lambda p: p.last_message_time or datetime.datetime.min.replace(tzinfo=datetime.timezone.utc), reverse=True)
 
     return previews

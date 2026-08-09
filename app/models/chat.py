@@ -14,6 +14,8 @@ class Chat(Base):
     user_a_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
     user_b_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
 
+    avatar_url = Column(Text)
+
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     __table_args__ = (

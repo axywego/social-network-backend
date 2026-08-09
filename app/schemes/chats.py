@@ -25,6 +25,7 @@ class ChatPreview(BaseModel):
     name: str
     last_message: Optional[str] = None
     last_message_time: Optional[datetime] = None
+    avatar_url: Optional[str] = None
 
 class MessageOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
