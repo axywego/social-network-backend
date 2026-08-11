@@ -5,7 +5,7 @@ from fastapi.staticfiles import StaticFiles
 from app.database.base import Base
 from app.database.session_db import engine
 
-from app.routers import auth, users, friends, chats, posts
+from app.routers import auth, users, friends, chats, posts, notifications
 
 import os
 from dotenv import load_dotenv
@@ -38,5 +38,6 @@ api.include_router(users.router)
 api.include_router(friends.router)
 api.include_router(chats.router)
 api.include_router(posts.router)
+api.include_router(notifications.router)
 
 app.include_router(api)

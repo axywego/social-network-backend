@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
+from fastapi import WebSocket, WebSocketDisconnect, APIRouter, Depends, HTTPException, UploadFile, File, Query
 from fastapi.responses import FileResponse
 from fastapi.encoders import jsonable_encoder
+from starlette.concurrency import run_in_threadpool
 
-from sqlalchemy import or_
+from sqlalchemy import or_, func, update
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 
@@ -28,11 +29,76 @@ import uuid
 
 from datetime import datetime, timezone
 
+from app.core.dependencies import get_user_from_token
+
 CHAT_IMAGES_URL = "app/static/private_storage/chat_images"
 ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 MAX_FILE_SIZE = 10 * 1024 * 1024
 
 router = APIRouter(prefix="/chats", tags=["chats"])
+
+@router.websocket("/ws/{chat_id}")
+async def chat_websocket(
+    websocket: WebSocket,
+    chat_id: uuid.UUID,
+    token: str = Query(...),
+    db: Session = Depends(get_db)
+):
+    user = get_user_from_token(token, db)
+    if not user or not is_membership(db, chat_id, user.id):
+        await websocket.close(code=1008)
+        return
+
+    await manager.connect_to_chat(str(chat_id), websocket)
+    try:
+        while True:
+            data = await websocket.receive_json()
+
+            if data.get("type") == "read":
+                message_id = data.get("message_id")
+                if not isinstance(message_id, int):
+                    continue
+
+                last_read = await run_in_threadpool(
+                    mark_chat_read, db, chat_id, user.id, message_id
+                )
+                if last_read is None:
+                    continue
+
+                await manager.broadcast_to_chat(str(chat_id), {
+                    "type": "message_read",
+                    "chat_id": str(chat_id),
+                    "user_id": str(user.id),
+                    "last_read_message_id": last_read,
+                })
+
+    except WebSocketDisconnect:
+        await manager.disconnect_from_chat(str(chat_id), websocket)
+    except Exception:
+        await manager.disconnect_from_chat(str(chat_id), websocket)
+        raise
+
+
+def mark_chat_read(db: Session, chat_id: uuid.UUID, user_id: uuid.UUID, message_id: int) -> int:
+    stmt = (
+        update(ChatUser)
+        .where(
+            ChatUser.user_id == user_id,
+            ChatUser.chat_id == chat_id,
+            ChatUser.left_at.is_(None)  
+        )
+        .values(last_read_message_id=func.greatest(
+            func.coalesce(ChatUser.last_read_message_id, 0), message_id
+        ))
+        .returning(ChatUser.last_read_message_id)
+    )
+    row = db.execute(stmt).first()
+    if not row:
+        return None
+
+    db.commit()
+    return row.last_read_message_id
+    
 
 def build_image_url(chat_id: uuid.UUID, filename: str | None) -> str | None:
     return f"/chats/{chat_id}/images/{filename}" if filename else None
@@ -89,6 +155,41 @@ def get_chat_image(
 
     return FileResponse(filepath)
 
+@router.patch("/{chat_id}/mark_read/{message_id}")
+def update_read_mesage(
+    chat_id: uuid.UUID,
+    message_id: int,
+    current_user: User = Depends(get_current_user), 
+    db: Session = Depends(get_db)
+):
+    
+    last_read = mark_chat_read(db, chat_id, current_user.id, message_id)
+    if not last_read:
+        raise HTTPException(status_code=404, detail="Chat not found or you are not a member")
+    
+    return {"chat_id": chat_id, "last_read_messsage_id": last_read}
+
+def get_unread_count_from_chat(chat_id: uuid.UUID, current_user_id: uuid.UUID, db: Session):
+    chat_user = db.query(ChatUser).filter(
+        ChatUser.chat_id == chat_id, ChatUser.user_id == current_user_id, ChatUser.left_at.is_(None)
+    ).first()
+
+    if not chat_user:
+        raise HTTPException(status_code=404, detail="Chat not found or you are not a member")
+
+    last_read = chat_user.last_read_message_id or 0
+
+    unread_count = db.query(func.count(ChatMessage.id)).filter(
+        ChatMessage.chat_id == chat_id,
+        ChatMessage.id > last_read,
+        or_(
+            ChatMessage.user_id != current_user_id,
+            ChatMessage.user_id.is_(None)
+        ),
+    ).scalar()
+
+    return unread_count
+
 @router.get("/{chat_id}/messages", response_model=list[MessageOut])
 def get_messages_from_chat(
     chat_id: uuid.UUID,
@@ -108,8 +209,9 @@ def get_messages_from_chat(
     finded_messages.reverse()
     return [
         MessageOut(
+            id=m.id,
             sender_id=m.user_id,
-            content=decompress_message(m.content),
+            content=decompress_message(m.content) if m.content else None,
             image_url=build_image_url(chat_id, m.image_url),
             created_at=m.created_at
         )
@@ -169,7 +271,7 @@ async def send_message(
     message = ChatMessage(
         chat_id=chat_id,
         user_id=current_user.id,
-        content=compress_message(payload.content),
+        content=compress_message(payload.content) if payload.content else None,
         image_url=payload.image_url
     )
 
@@ -178,13 +280,28 @@ async def send_message(
     db.refresh(message)
 
     result = MessageOut(
+        id=message.id,
         sender_id=message.user_id,
         content=payload.content,
         image_url=build_image_url(chat_id, message.image_url),
         created_at=message.created_at
     )
 
-    await manager.broadcast_chats(str(chat_id), jsonable_encoder(result))
+    await manager.broadcast_to_chat(str(chat_id), jsonable_encoder(result))
+
+    chat_members = db.query(ChatUser).filter(ChatUser.chat_id == chat_id, ChatUser.user_id != current_user.id).all()
+    chat = db.query(Chat).filter(Chat.id == chat_id).first()
+    await manager.send_to_users(
+        [str(m.user_id) for m in chat_members],
+        {
+            "type": "new_message",
+            "chat_id": str(chat_id),
+            "chat_name": chat.name if chat.name else None,
+            "sender_name": f"{current_user.first_name} {current_user.last_name}",
+            "message": result.content if payload.content else "Изображение",
+            "created_at": result.created_at.isoformat(),
+        }
+    )
 
     return result
 
@@ -258,8 +375,12 @@ def get_direct_chat(user_id: uuid.UUID, current_user: User = Depends(get_current
 
     other_user = db.query(User).filter(User.id == user_id).first()
 
+    if not other_user:
+        raise HTTPException(status_code=404, detail="User not found")
+
     return ChatPreview(
         chat_id=chat.id,
+        unread_count=get_unread_count_from_chat(chat.id, current_user.id, db),
         type="direct",
         name=f"{other_user.first_name} {other_user.last_name}",
         last_message=None,
@@ -308,8 +429,10 @@ def create_chat(payload: ChatCreate, current_user: User = Depends(get_current_us
             chat_id=new_chat.id,
             type="direct",
             name=f"{other_user.first_name} {other_user.last_name}",
+            unread_count=0,
             last_message=None,
-            last_message_time=None
+            last_message_time=None,
+            avatar_url=None
         )
 
     elif payload.type == "group":
@@ -333,6 +456,7 @@ def create_chat(payload: ChatCreate, current_user: User = Depends(get_current_us
             chat_id=new_chat.id,
             type="group",
             name=new_chat.name,
+            unread_count=0,
             last_message=None,
             last_message_time=None
         )
@@ -355,6 +479,7 @@ def get_all_chats(current_user: User = Depends(get_current_user), db: Session = 
             chat_id=chat.id,
             type="direct",
             name=f"{other_user.first_name} {other_user.last_name}" if other_user else "Unknown",
+            unread_count=get_unread_count_from_chat(chat.id, current_user.id, db),
             last_message=(decompress_message(last_message.content) if last_message.content is not None else "Image") if last_message else None,
             last_message_time=last_message.created_at if last_message else None,
             avatar_url=other_user.avatar_url
@@ -371,9 +496,10 @@ def get_all_chats(current_user: User = Depends(get_current_user), db: Session = 
 
         previews.append(ChatPreview(
             chat_id=chat.id,
+            unread_count=get_unread_count_from_chat(chat.id, current_user.id, db),
             type="group",
             name=chat.name,
-            last_message=(last_message.content if last_message.content is not None else "Image") if last_message else None,
+            last_message=(decompress_message(last_message.content) if last_message.content is not None else "Image") if last_message else None,
             last_message_time=last_message.created_at if last_message else None,
             avatar_url=chat.avatar_url
         ))

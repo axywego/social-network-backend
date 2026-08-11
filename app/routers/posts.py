@@ -13,6 +13,8 @@ from app.models.post_like import PostLike
 from app.schemes.posts import PostCommentCreate, PostCreate, PostAuthor, PostOut, PostCommentAuthor, PostCommentOut
 from typing import Optional
 
+from app.ws.manager import manager
+
 from app.core.dependencies import get_current_user
 
 from app.core.utils import get_ordered_pair
@@ -140,7 +142,7 @@ def unlike_post(post_id: int, current_user: User = Depends(get_current_user), db
     return {"message": "Post unliked successful"}
 
 @router.post("/{post_id}/like")
-def like_post(post_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+async def like_post(post_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     post = db.query(Post).filter(Post.id == post_id).first()
     if not post:
         raise HTTPException(status_code=404, detail="Post not found")
@@ -161,10 +163,21 @@ def like_post(post_id: int, current_user: User = Depends(get_current_user), db: 
     db.add(new_like)
     db.commit()
 
+    other_user_id = db.query(User).filter(User.id == post.user_id).first().id
+    if other_user_id != current_user.id:
+        await manager.send_to_user(
+            str(),
+            {
+                "type": "new_like",
+                "like_author": f"{current_user.first_name} {current_user.last_name}",
+                "message": f"Вам поставили лайк на пост от {post.created_at}"
+            }
+        )
+
     return {"message": "Post liked successful"}
 
 @router.post("/create_comment", response_model=PostCommentOut)
-def create_comment(payload: PostCommentCreate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+async def create_comment(payload: PostCommentCreate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     if not payload.content:
         raise HTTPException(status_code=400, detail="content is required")
     
@@ -181,6 +194,17 @@ def create_comment(payload: PostCommentCreate, current_user: User = Depends(get_
     db.add(new_comment)
     db.commit()
     db.refresh(new_comment)
+
+    other_user_id = db.query(User).filter(User.id == post.user_id).first().id
+    if other_user_id != current_user.id:
+        await manager.send_to_user(
+            str(db.query(User).filter(User.id == post.user_id).first().id),
+            {
+                "type": "new_comment",
+                "comment_author": f"{current_user.first_name} {current_user.last_name}",
+                "message": f"Вам отправлен комментарий на пост от {post.created_at}"
+            }
+        )
 
     return PostCommentOut(
         author=current_user,

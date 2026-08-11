@@ -4,8 +4,8 @@ from typing import Iterable
 
 class ConnectionManager:
     def __init__(self):
-        self.active_chats: dict[str, set[WebSocket]] = defaultdict(list)
-        self.active_users: dict[str, set[WebSocket]] = defaultdict(list)
+        self.active_chats: dict[str, set[WebSocket]] = defaultdict(set)
+        self.active_users: dict[str, WebSocket] = {}
 
     # chats
 
@@ -32,26 +32,24 @@ class ConnectionManager:
 
     # users
 
-    async def connect_to_user(self, user_id: str, websocket: WebSocket):
+    async def connect_to_users(self, user_id: str, websocket: WebSocket):
         await websocket.accept()
-        self.active_users[user_id].add(websocket)
+        self.active_users[user_id] = websocket
 
-    async def disconnect_from_user(self, user_id: str, websocket: WebSocket):
-        connections = self.active_users.get(user_id)
-        if not connections:
+    async def disconnect_from_users(self, user_id: str, websocket: WebSocket):
+        conn = self.active_users.get(user_id)
+        if not conn:
             return
 
-        connections.discard(websocket)
-
-        if not connections:
-            del self.active_users[user_id]
+        del self.active_users[user_id]
 
     async def send_to_user(self, user_id: str, message: dict):
-        for ws in list(self.active_users.get(user_id, [])):
+        conn = self.active_users.get(user_id)
+        if conn:
             try:
-                await ws.send_json(message)
+                await conn.send_json(message)
             except Exception:
-                await self.disconnect_from_user(user_id, ws)
+                await self.disconnect_from_users(user_id)
 
     async def send_to_users(self, user_ids: Iterable[str], message: dict):
         unique_user_ids = {user_id for user_id in user_ids}
