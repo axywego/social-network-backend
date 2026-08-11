@@ -11,11 +11,12 @@ from app.schemes.friends import FriendRequest, FriendOut, FriendRequestOut
 from app.core.dependencies import get_current_user
 
 from app.core.utils import get_ordered_pair
+from app.ws.manager import manager
 
 router = APIRouter(prefix="/friends", tags=["friends"])
 
 @router.post("/send_request")
-def send_friend_request(payload: FriendRequest, current_user: User = Depends(get_current_user),  db: Session = Depends(get_db)):
+async def send_friend_request(payload: FriendRequest, current_user: User = Depends(get_current_user),  db: Session = Depends(get_db)):
     finded_user = db.query(User).filter(User.username == payload.target_login).first()
 
     if not finded_user:
@@ -41,10 +42,19 @@ def send_friend_request(payload: FriendRequest, current_user: User = Depends(get
     db.add(pending_request)
     db.commit()
 
+    await manager.send_to_user(
+        str(finded_user.id),
+        {
+            "type": "new_friend",
+            "sender_name": f"{current_user.first_name} {current_user.last_name}",
+            "message": "Вам отправили новый запрос дружбы!"
+        }
+    )
+
     return {"message": "Friend request sended successful"}
 
 @router.put("/accept_request")
-def accept_request(payload: FriendRequest, current_user: User = Depends(get_current_user),  db: Session = Depends(get_db)):
+async def accept_request(payload: FriendRequest, current_user: User = Depends(get_current_user),  db: Session = Depends(get_db)):
     finded_user = db.query(User).filter(User.username == payload.target_login).first()
 
     if not finded_user:
@@ -68,10 +78,19 @@ def accept_request(payload: FriendRequest, current_user: User = Depends(get_curr
     finded_friendship.status = "accepted"
     db.commit()
 
+    await manager.send_to_user(
+        str(finded_user.id),
+        {
+            "type": "new_friend",
+            "sender_name": f"{current_user.first_name} {current_user.last_name}",
+            "message": "Ваш запрос дружбы был одобрен!"
+        }
+    )
+
     return {"message": "Friendship was created successful"}
 
 @router.delete("/decline_request")
-def decline_request(payload: FriendRequest, current_user: User = Depends(get_current_user),  db: Session = Depends(get_db)):
+async def decline_request(payload: FriendRequest, current_user: User = Depends(get_current_user),  db: Session = Depends(get_db)):
     finded_user = db.query(User).filter(User.username == payload.target_login).first()
     
     if not finded_user:
@@ -88,6 +107,15 @@ def decline_request(payload: FriendRequest, current_user: User = Depends(get_cur
 
     db.delete(finded_friendship)
     db.commit()
+
+    await manager.send_to_user(
+        str(finded_user.id),
+        {
+            "type": "new_friend",
+            "sender_name": f"{current_user.first_name} {current_user.last_name}",
+            "message": "Ваш запрос дружбы был отклонен!"
+        }
+    )
 
     return {"message": "friendship was declined successful"}
 

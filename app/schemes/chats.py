@@ -24,6 +24,7 @@ class ChatPreview(BaseModel):
     chat_id: UUID
     type: Literal["direct", "group"]
     name: str
+    unread_count: int
     last_message: Optional[str] = None
     last_message_time: Optional[datetime] = None
     avatar_url: Optional[str] = None
@@ -35,6 +36,7 @@ class AddRemoveUserFromChat(BaseModel):
 class MessageOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
+    id: int
     sender_id: Optional[UUID] = None
     content: Optional[str] = None
     image_url: Optional[str] = None

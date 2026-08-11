@@ -19,4 +19,5 @@ class ChatMessage(Base):
     __table_args__ = (
         CheckConstraint("content is not null or image_url is not null", name="check_content_or_image"),
         Index("idx_chat_message_chat_id_created_at", "chat_id", desc("created_at")),
+        Index("idx_chat_message_chat_id_id", "chat_id", "id")
     )

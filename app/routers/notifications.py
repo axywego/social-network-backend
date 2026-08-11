@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, HTTPException, UploadFile, File, Query
 from fastapi.responses import FileResponse
 from fastapi.encoders import jsonable_encoder
 
@@ -17,7 +17,7 @@ from app.schemes.users import UserOut
 
 from typing import Optional
 
-from app.core.dependencies import get_current_user
+from app.core.dependencies import get_current_user, get_user_from_token
 from app.core.utils import get_ordered_pair, compress_message, decompress_message
 
 from app.ws.manager import manager
@@ -29,3 +29,22 @@ import uuid
 from datetime import datetime, timezone
 
 router = APIRouter(prefix="/notifications")
+
+@router.websocket("/ws")
+async def notifications_websocket(
+    websocket: WebSocket,
+    token: str = Query(...),
+    db: Session = Depends(get_db)
+):
+    user = get_user_from_token(token, db)
+    if not user:
+        await websocket.close(code=1008)
+        return
+
+    await manager.connect_to_users(str(user.id), websocket)
+
+    try:
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        await manager.disconnect_from_users(str(user.id), websocket)

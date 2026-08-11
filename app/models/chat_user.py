@@ -20,4 +20,5 @@ class ChatUser(Base):
         UniqueConstraint("chat_id", "user_id", name="uq_chat_user_chat_id_user_id"),
         Index("idx_chat_user_user_id", "user_id"),
         Index("idx_chat_user_chat_id", "chat_id"),
+        Index("idx_chat_user_last_read", "chat_id", "last_read_message_id")
     )
