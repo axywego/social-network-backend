@@ -11,6 +11,8 @@ class ChatUser(Base):
     chat_id = Column(UUID(as_uuid=True), ForeignKey("chats.id", ondelete="CASCADE"), nullable=False)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
 
+    last_read_message_id = Column(BigInteger, ForeignKey("chat_message.id"))
+
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     left_at = Column(DateTime(timezone=True))
 
