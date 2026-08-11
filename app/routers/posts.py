@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
 from fastapi.responses import FileResponse
 from sqlalchemy import or_, and_
 from sqlalchemy.orm import Session
@@ -11,6 +11,7 @@ from app.models.post import Post
 from app.models.post_comment import PostComment
 from app.models.post_like import PostLike
 from app.schemes.posts import PostCommentCreate, PostCreate, PostAuthor, PostOut, PostCommentAuthor, PostCommentOut
+from typing import Optional
 
 from app.core.dependencies import get_current_user
 
@@ -20,7 +21,7 @@ import os
 
 import uuid
 
-import datetime
+from datetime import datetime
 
 router = APIRouter(prefix="/posts", tags=["posts"])
 
@@ -103,6 +104,20 @@ async def upload_post_image(
     db.commit()
 
     return {"filename": post.image_url}
+
+@router.delete("/{post_id}/delete")
+def delete_post(post_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    post = db.query(Post).filter(Post.id == post_id).first()
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+
+    if post.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="You haven't access to delete this post")
+
+    db.delete(post)
+    db.commit()
+
+    return {"message": "Post deleted successful"}
 
 @router.delete("/{post_id}/unlike")
 def unlike_post(post_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -191,7 +206,12 @@ def create_post(payload: PostCreate, current_user: User = Depends(get_current_us
     return get_post_out(new_post, db, current_user)
 
 @router.get("/recent", response_model=list[PostOut])
-def get_recent_posts(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def get_recent_posts(
+    limit: int = Query(15, le=50),
+    before: Optional[datetime] = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
     friendships = db.query(Friendship).filter(
         or_(
             and_(
@@ -208,7 +228,11 @@ def get_recent_posts(current_user: User = Depends(get_current_user), db: Session
     ids = [f.user2 if f.user1 == current_user.id else f.user1 for f in friendships]
     ids.append(current_user.id)
 
-    posts = db.query(Post).filter(Post.user_id.in_(ids)).order_by(Post.created_at.desc()).all()
+    query = db.query(Post).filter(Post.user_id.in_(ids))
+    if before:
+        query = query.filter(Post.created_at < before)
+
+    posts = query.order_by(Post.created_at.desc()).limit(limit).all()
 
     return [get_post_out(p, db, current_user) for p in posts]
 
