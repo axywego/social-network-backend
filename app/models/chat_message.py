@@ -1,4 +1,4 @@
-from sqlalchemy import Column, BigInteger, Identity, Text, DateTime, ForeignKey, CheckConstraint, Index, desc
+from sqlalchemy import Column, BigInteger, Identity, Text, LargeBinary, DateTime, ForeignKey, CheckConstraint, Index, desc
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
 from app.database.base import Base
@@ -10,7 +10,7 @@ class ChatMessage(Base):
     chat_id = Column(UUID(as_uuid=True), ForeignKey("chats.id", ondelete="CASCADE"), nullable=False)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
 
-    content = Column(Text)
+    content = Column(LargeBinary)
     image_url = Column(Text)
 
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())

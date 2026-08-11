@@ -1,7 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, WebSocket, WebSocketDisconnect, Query
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
 from fastapi.responses import FileResponse
 from fastapi.encoders import jsonable_encoder
-from jose import JWTError, jwt
 
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
@@ -18,8 +17,8 @@ from app.schemes.users import UserOut
 
 from typing import Optional
 
-from app.core.dependencies import get_current_user, get_user_from_token
-from app.core.utils import get_ordered_pair
+from app.core.dependencies import get_current_user
+from app.core.utils import get_ordered_pair, compress_message, decompress_message
 
 from app.ws.manager import manager
 
@@ -44,30 +43,6 @@ def is_membership(db: Session, chat_id: uuid.UUID, user_id: uuid.UUID) -> bool:
         .filter(ChatUser.chat_id == chat_id, ChatUser.user_id == user_id, ChatUser.left_at.is_(None))
         .first() is not None
     )
-
-# websocket
-
-@router.websocket("/ws/{chat_id}")
-async def chat_websocket(
-    websocket: WebSocket,
-    chat_id: uuid.UUID,
-    token: str = Query(...),
-    db: Session = Depends(get_db)
-):
-    user = get_user_from_token(token, db)
-    if not user or not is_membership(db, chat_id, user.id):
-        await websocket.close(code=1008)
-        return
-
-    await manager.connect(str(chat_id), websocket)
-    try:
-        while True:
-            await websocket.receive_text()
-    except WebSocketDisconnect:
-        manager.disconnect(str(chat_id), websocket)
-
-
-#crud
 
 @router.post("/{chat_id}/images")
 async def upload_chat_image(
@@ -134,7 +109,7 @@ def get_messages_from_chat(
     return [
         MessageOut(
             sender_id=m.user_id,
-            content=m.content,
+            content=decompress_message(m.content),
             image_url=build_image_url(chat_id, m.image_url),
             created_at=m.created_at
         )
@@ -194,7 +169,7 @@ async def send_message(
     message = ChatMessage(
         chat_id=chat_id,
         user_id=current_user.id,
-        content=payload.content,
+        content=compress_message(payload.content),
         image_url=payload.image_url
     )
 
@@ -204,12 +179,12 @@ async def send_message(
 
     result = MessageOut(
         sender_id=message.user_id,
-        content=message.content,
+        content=payload.content,
         image_url=build_image_url(chat_id, message.image_url),
         created_at=message.created_at
     )
 
-    await manager.broadcast(str(chat_id), jsonable_encoder(result))
+    await manager.broadcast_chats(str(chat_id), jsonable_encoder(result))
 
     return result
 
@@ -380,7 +355,7 @@ def get_all_chats(current_user: User = Depends(get_current_user), db: Session = 
             chat_id=chat.id,
             type="direct",
             name=f"{other_user.first_name} {other_user.last_name}" if other_user else "Unknown",
-            last_message=(last_message.content if last_message.content is not None else "Image") if last_message else None,
+            last_message=(decompress_message(last_message.content) if last_message.content is not None else "Image") if last_message else None,
             last_message_time=last_message.created_at if last_message else None,
             avatar_url=other_user.avatar_url
         ))
