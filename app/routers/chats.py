@@ -16,6 +16,8 @@ from app.models.chat_message import ChatMessage
 from app.schemes.chats import ChatCreate, ChatPreview, MessageCreate, MessageOut, AddRemoveUserFromChat
 from app.schemes.users import UserOut
 
+from typing import Optional
+
 from app.core.dependencies import get_current_user, get_user_from_token
 from app.core.utils import get_ordered_pair
 
@@ -25,7 +27,7 @@ import os
 
 import uuid
 
-import datetime
+from datetime import datetime, timezone
 
 CHAT_IMAGES_URL = "app/static/private_storage/chat_images"
 ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
@@ -115,19 +117,20 @@ def get_chat_image(
 @router.get("/{chat_id}/messages", response_model=list[MessageOut])
 def get_messages_from_chat(
     chat_id: uuid.UUID,
+    limit: int = Query(30, le=100),
+    before: Optional[datetime] = None,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     if not is_membership(db, chat_id, current_user.id):
         raise HTTPException(status_code=403, detail="Not a member of this chat")
 
-    finded_messages = (
-        db.query(ChatMessage)
-        .filter(ChatMessage.chat_id == chat_id)
-        .order_by(ChatMessage.created_at.asc())
-        .all()
-    )
+    query = db.query(ChatMessage).filter(ChatMessage.chat_id == chat_id)
+    if before:
+        query = query.filter(ChatMessage.created_at < before)
 
+    finded_messages = query.order_by(ChatMessage.created_at.desc()).limit(limit).all()
+    finded_messages.reverse()
     return [
         MessageOut(
             sender_id=m.user_id,
@@ -150,6 +153,33 @@ def get_chat_members(chat_id: uuid.UUID, current_user: User = Depends(get_curren
         .all()
     )
     return members
+
+@router.delete("/{chat_id}/delete/{messsage_id}")
+def delete_message(
+    chat_id: uuid.UUID,
+    message_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    chat = db.query(Chat).filter(Chat.id == chat_id).first()
+    if not chat:
+        raise HTTPException(status_code=404, detail="Chat not found")
+
+    if not is_membership(db, chat_id, current_user.id):
+        raise HTTPException(status_code=403, detail="You haven't access to this chat")
+
+    message = db.query(ChatMessage).filter(
+        ChatMessage.id == message_id,
+        ChatMessage.chat_id == chat.id,
+        ChatMessage.user_id == current_user.id
+    ).first()
+    if not message:
+        raise HTTPException(status_code=404, detail="Message not found")
+
+    db.delete(message)
+    db.commit()
+
+    return {"message": "Message deleted successful"}
 
 @router.post("/{chat_id}/messages", response_model=MessageOut)
 async def send_message(
@@ -373,6 +403,6 @@ def get_all_chats(current_user: User = Depends(get_current_user), db: Session = 
             avatar_url=chat.avatar_url
         ))
 
-    previews.sort(key=lambda p: p.last_message_time or datetime.datetime.min.replace(tzinfo=datetime.timezone.utc), reverse=True)
+    previews.sort(key=lambda p: p.last_message_time or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
 
     return previews
