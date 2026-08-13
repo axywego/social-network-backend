@@ -40,6 +40,8 @@ class MessageOut(BaseModel):
     sender_id: Optional[UUID] = None
     content: Optional[str] = None
     image_url: Optional[str] = None
+    image_width: Optional[int] = None
+    image_height: Optional[int] = None
     created_at: datetime
 
 class Chat(BaseModel):
@@ -51,6 +53,8 @@ class Chat(BaseModel):
 class MessageCreate(BaseModel):
     content: Optional[str] = None
     image_url: Optional[str] = None
+    image_width: Optional[int] = None
+    image_height: Optional[int] = None
 
     @model_validator(mode="after")
     def check_not_empty(self):
