@@ -7,6 +7,9 @@ from sqlalchemy import or_, func, update
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 
+from PIL import Image
+import io
+
 from app.database.session_db import get_db
 from app.models.user import User
 from app.models.chat import Chat
@@ -136,7 +139,11 @@ async def upload_chat_image(
     with open(filepath, "wb") as f:
         f.write(contents)
 
-    return {"filename": filename}
+    image = Image.open(io.BytesIO(contents))
+    width = image.width
+    height = image.height
+
+    return {"filename": filename, "width": width, "height": height}
 
 @router.get("/{chat_id}/images/{filename}")
 def get_chat_image(
@@ -207,12 +214,15 @@ def get_messages_from_chat(
 
     finded_messages = query.order_by(ChatMessage.created_at.desc()).limit(limit).all()
     finded_messages.reverse()
+    
     return [
         MessageOut(
             id=m.id,
             sender_id=m.user_id,
             content=decompress_message(m.content) if m.content else None,
             image_url=build_image_url(chat_id, m.image_url),
+            image_width=m.image_width,
+            image_height=m.image_height,
             created_at=m.created_at
         )
         for m in finded_messages
@@ -272,7 +282,9 @@ async def send_message(
         chat_id=chat_id,
         user_id=current_user.id,
         content=compress_message(payload.content) if payload.content else None,
-        image_url=payload.image_url
+        image_url=payload.image_url,
+        image_width=payload.image_width,
+        image_height=payload.image_height
     )
 
     db.add(message)
@@ -284,6 +296,8 @@ async def send_message(
         sender_id=message.user_id,
         content=payload.content,
         image_url=build_image_url(chat_id, message.image_url),
+        image_width=payload.image_width,
+        image_height=payload.image_height,
         created_at=message.created_at
     )
 

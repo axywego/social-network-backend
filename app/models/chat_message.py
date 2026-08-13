@@ -1,4 +1,4 @@
-from sqlalchemy import Column, BigInteger, Identity, Text, LargeBinary, DateTime, ForeignKey, CheckConstraint, Index, desc
+from sqlalchemy import Column, BigInteger, Integer, Identity, Text, LargeBinary, DateTime, ForeignKey, CheckConstraint, Index, desc
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
 from app.database.base import Base
@@ -12,6 +12,8 @@ class ChatMessage(Base):
 
     content = Column(LargeBinary)
     image_url = Column(Text)
+    image_width = Column(Integer)
+    image_height = Column(Integer)
 
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     edited_at = Column(DateTime(timezone=True))
