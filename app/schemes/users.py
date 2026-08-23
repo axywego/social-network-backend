@@ -1,15 +1,16 @@
-from pydantic import BaseModel, EmailStr, ConfigDict, Field
-from typing import Optional, List
-
 from datetime import date
 from uuid import UUID
+
+from pydantic import BaseModel, ConfigDict
+
 
 class UserChange(BaseModel):
     first_name: str
     last_name: str
-    patronymic: Optional[str] = None
-    bio: Optional[str] = None
-    birthday: Optional[date] = None
+    patronymic: str | None = None
+    bio: str | None = None
+    birthday: date | None = None
+
 
 class UserOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -18,15 +19,16 @@ class UserOut(BaseModel):
     username: str
     first_name: str
     last_name: str
-    patronymic: Optional[str] = None
-    bio: Optional[str] = None
-    birthday: Optional[date] = None
-    avatar_url: Optional[str] = None
+    patronymic: str | None = None
+    bio: str | None = None
+    birthday: date | None = None
+    avatar_url: str | None = None
+
 
 class PaginatedUsers(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    items: List[UserOut]
+    items: list[UserOut]
     total: int
     limit: int
     offset: int

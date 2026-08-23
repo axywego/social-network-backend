@@ -1,60 +1,70 @@
-from pydantic import BaseModel, ConfigDict, model_validator
-from typing import Optional, Literal, List
 from datetime import datetime
+from enum import Enum
 from uuid import UUID
 
+from pydantic import BaseModel, ConfigDict, model_validator
+
+
+class ChatType(str, Enum):
+    DIRECT = "direct"
+    GROUP = "group"
+
+
 class ChatCreate(BaseModel):
-    type: Literal["direct", "group"]
-    user_if_direct: Optional[UUID] = None
-    name: Optional[str] = None
+    type: ChatType
+    user_if_direct: UUID | None = None
+    name: str | None = None
 
     @model_validator(mode="after")
     def validate_fields(self):
-        if self.type == "direct":
-            if self.user_if_direct is None:
-                raise ValueError("user_if_direct if required for direct chats")
-        if self.type == "group":
-            if not self.name:
-                raise ValueError("name is required for group chats")
+        if self.type == ChatType.DIRECT and self.user_if_direct is None:
+            raise ValueError("user_if_direct if required for direct chats")
+        if self.type == ChatType.GROUP and self.name is None:
+            raise ValueError("name is required for group chats")
         return self
+
 
 class ChatPreview(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     chat_id: UUID
-    type: Literal["direct", "group"]
+    type: ChatType
     name: str
     unread_count: int
-    last_message: Optional[str] = None
-    last_message_time: Optional[datetime] = None
-    avatar_url: Optional[str] = None
+    last_message: str | None = None
+    last_message_time: datetime | None = None
+    avatar_url: str | None = None
+
 
 class AddRemoveUserFromChat(BaseModel):
     chat_id: UUID
     user_id: UUID
 
+
 class MessageOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    sender_id: Optional[UUID] = None
-    content: Optional[str] = None
-    image_url: Optional[str] = None
-    image_width: Optional[int] = None
-    image_height: Optional[int] = None
+    sender_id: UUID | None = None
+    content: str | None = None
+    image_url: str | None = None
+    image_width: int | None = None
+    image_height: int | None = None
     created_at: datetime
+
 
 class Chat(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     chat_id: UUID
-    messages: List[MessageOut] = []
+    messages: list[MessageOut] = []
+
 
 class MessageCreate(BaseModel):
-    content: Optional[str] = None
-    image_url: Optional[str] = None
-    image_width: Optional[int] = None
-    image_height: Optional[int] = None
+    content: str | None = None
+    image_url: str | None = None
+    image_width: int | None = None
+    image_height: int | None = None
 
     @model_validator(mode="after")
     def check_not_empty(self):

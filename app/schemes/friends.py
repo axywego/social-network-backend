@@ -1,10 +1,12 @@
-from pydantic import BaseModel, ConfigDict
-from typing import Optional
-from datetime import date, datetime
+from datetime import datetime
 from uuid import UUID
+
+from pydantic import BaseModel, ConfigDict
+
 
 class FriendRequest(BaseModel):
     target_login: str
+
 
 class FriendOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -13,7 +15,8 @@ class FriendOut(BaseModel):
     username: str
     first_name: str
     last_name: str
-    avatar_url: Optional[str] = None
+    avatar_url: str | None = None
+
 
 class FriendRequestOut(BaseModel):
     user: FriendOut

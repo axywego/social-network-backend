@@ -1,20 +1,30 @@
-from fastapi import FastAPI, APIRouter
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
+import os
+from contextlib import asynccontextmanager
 
 from app.database.base import Base
 from app.database.session_db import engine
-
-from app.routers import auth, users, friends, chats, posts, notifications
-
-import os
+from app.routers import auth, chats, friends, notifications, posts, users
+from app.ws.manager import manager
 from dotenv import load_dotenv
+from fastapi import APIRouter, FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI()
 
-load_dotenv()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    import asyncio
+
+    task = asyncio.create_task(manager.start_listener())
+    yield
+    task.cancel()
+
+
+app = FastAPI(lifespan=lifespan)
+
+_ = load_dotenv()
 FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", "http://localhost:5173")
 
 app.add_middleware(
@@ -27,9 +37,11 @@ app.add_middleware(
 
 app.mount("/api/static", StaticFiles(directory="app/static"), name="static")
 
+
 @app.get("/")
 def home():
     return {"message": "Hello, World!"}
+
 
 api = APIRouter(prefix="/api")
 
