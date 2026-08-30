@@ -1,0 +1,132 @@
+import os
+import uuid
+
+from app.core.dependencies import get_current_user
+from app.database.session_db import get_db
+from app.models.user import User
+from app.schemes.users import PaginatedUsers, UserChange, UserOut
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from sqlalchemy import or_
+from sqlalchemy.orm import Session
+
+router = APIRouter(prefix="/users", tags=["users"])
+
+AVATAR_DIR = "app/static/avatars"
+ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
+MAX_FILE_SIZE = 5 * 1024 * 1024
+
+os.makedirs(AVATAR_DIR, exist_ok=True)
+
+
+@router.patch("/me/change_avatar")
+async def upload_avatar(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    ext = os.path.splitext(file.filename)[1].lower()
+    if ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(status_code=400, detail="Unsupported file type")
+
+    contents = await file.read()
+    if len(contents) > MAX_FILE_SIZE:
+        raise HTTPException(status_code=400, detail="File too large")
+
+    filename = f"{uuid.uuid4()}{ext}"
+    filepath = os.path.join(AVATAR_DIR, filename)
+
+    with open(filepath, "wb") as f:
+        f.write(contents)
+
+    if current_user.avatar_url:
+        old_path = current_user.avatar_url.replace("/static/avatars/", f"{AVATAR_DIR}/")
+        if os.path.exists(old_path):
+            os.remove(old_path)
+
+    current_user.avatar_url = f"/static/avatars/{filename}"
+    db.commit()
+
+    return {"avatar_url": current_user.avatar_url}
+
+
+@router.put("/me/change_info", response_model=UserOut)
+def change_info(
+    payload: UserChange,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    current_user.first_name = payload.first_name
+    current_user.last_name = payload.last_name
+    current_user.patronymic = payload.patronymic
+    current_user.bio = payload.bio
+    current_user.birthday = payload.birthday
+
+    db.commit()
+    db.refresh(current_user)
+
+    return current_user
+
+
+@router.get("/me", response_model=UserOut)
+def get_me(current_user: User = Depends(get_current_user)):
+    return current_user
+
+
+@router.get("/search", response_model=PaginatedUsers)
+def search_users(
+    q: str = Query(..., min_length=1, max_length=100),
+    limit: int = Query(20, ge=1, le=50),
+    offset: int = Query(0, ge=0),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    search_term = f"%{q.strip()}%"
+
+    base_query = db.query(User).filter(
+        User.id != current_user.id,
+        or_(
+            User.username.ilike(search_term),
+            User.first_name.ilike(search_term),
+            User.last_name.ilike(search_term),
+        ),
+    )
+
+    total = base_query.count()
+    users = base_query.order_by(User.username).limit(limit).offset(offset).all()
+
+    return PaginatedUsers(
+        items=[
+            UserOut(
+                id=u.id,
+                username=u.username,
+                first_name=u.first_name,
+                last_name=u.last_name,
+                patronymic=u.patronymic,
+                bio=u.bio,
+                birthday=u.birthday,
+                avatar_url=u.avatar_url,
+            )
+            for u in users
+        ],
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.get("/{user_id}", response_model=UserOut)
+def get_user_by_id(
+    user_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    return user
+
+
+@router.get("", response_model=list[UserOut])
+def get_users(db: Session = Depends(get_db)):
+    return db.query(User).all()
