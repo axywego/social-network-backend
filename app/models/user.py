@@ -38,13 +38,13 @@ class User(Base):
         ),
         Index(
             "idx_users_first_name_trgm",
-            "username",
+            "first_name",
             postgresql_using="gin",
             postgresql_ops={"first_name": "gin_trgm_ops"},
         ),
         Index(
             "idx_users_last_name_trgm",
-            "username",
+            "last_name",
             postgresql_using="gin",
             postgresql_ops={"last_name": "gin_trgm_ops"},
         ),

@@ -14,6 +14,7 @@ from app.schemes.chats import (
     AddRemoveUserFromChat,
     ChatCreate,
     ChatPreview,
+    ChatType,
     MessageCreate,
     MessageEdit,
     MessageOut,
@@ -543,7 +544,7 @@ def get_direct_chat(
     return ChatPreview(
         chat_id=chat.id,
         unread_count=get_unread_count_from_chat(chat.id, current_user.id, db),
-        type="direct",
+        type=ChatType.DIRECT,
         name=f"{other_user.first_name} {other_user.last_name}",
         last_message=None,
         last_message_time=None,
@@ -606,7 +607,7 @@ def create_chat(
 
         return ChatPreview(
             chat_id=new_chat.id,
-            type="direct",
+            type=ChatType.DIRECT,
             name=f"{other_user.first_name} {other_user.last_name}",
             unread_count=0,
             last_message=None,
@@ -630,7 +631,7 @@ def create_chat(
 
         return ChatPreview(
             chat_id=new_chat.id,
-            type="group",
+            type=ChatType.GROUP,
             name=new_chat.name if new_chat.name else "chat",
             unread_count=0,
             last_message=None,
@@ -676,7 +677,7 @@ def get_all_chats(
         previews.append(
             ChatPreview(
                 chat_id=chat.id,
-                type="direct",
+                type=ChatType.DIRECT,
                 name=f"{other_user.first_name} {other_user.last_name}"
                 if other_user
                 else "Unknown",
@@ -711,7 +712,7 @@ def get_all_chats(
             ChatPreview(
                 chat_id=chat.id,
                 unread_count=get_unread_count_from_chat(chat.id, current_user.id, db),
-                type="group",
+                type=ChatType.GROUP,
                 name=chat.name if chat.name else "chat",
                 last_message=(
                     decompress_message(last_message.content)

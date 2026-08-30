@@ -10,6 +10,8 @@ from app.models.post_comment import PostComment
 from app.models.post_like import PostLike
 from app.models.user import User
 from app.schemes.posts import (
+    PostAuthor,
+    PostCommentAuthor,
     PostCommentCreate,
     PostCommentOut,
     PostCreate,
@@ -21,6 +23,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
+from starlette import status
 
 router = APIRouter(prefix="/posts", tags=["posts"])
 
@@ -38,6 +41,8 @@ def get_post_out(post: Post, db: Session, current_user: User) -> PostOut:
     )
 
     author = db.query(User).filter(User.id == post.user_id).first()
+    if not author:
+        raise HTTPException(status_code=404, detail="User not found")
 
     likes = db.query(PostLike).filter(PostLike.post_id == post.id).count()
 
@@ -48,9 +53,18 @@ def get_post_out(post: Post, db: Session, current_user: User) -> PostOut:
         is not None
     )
 
+    comments_authors = {
+        u.id: u
+        for u in db.query(User).filter(User.id.in_([c.user_id for c in comments])).all()
+    }
     comments_out = [
         PostCommentOut(
-            author=db.query(User).filter(User.id == c.user_id).first(),
+            author=PostCommentAuthor(
+                id=c.user_id,
+                first_name=comments_authors[c.user_id].first_name,
+                last_name=comments_authors[c.user_id].last_name,
+                avatar_url=comments_authors[c.user_id].avatar_url,
+            ),
             content=c.content,
             created_at=c.created_at,
         )
@@ -59,7 +73,11 @@ def get_post_out(post: Post, db: Session, current_user: User) -> PostOut:
 
     return PostOut(
         id=post.id,
-        author=author,
+        author=PostAuthor(
+            id=author.id,
+            first_name=author.first_name,
+            last_name=author.last_name,
+        ),
         content=post.content,
         image_url=post.image_url,
         created_at=post.created_at,
@@ -199,10 +217,12 @@ async def like_post(
     db.add(new_like)
     db.commit()
 
-    other_user_id = db.query(User).filter(User.id == post.user_id).first().id
-    if other_user_id != current_user.id:
+    other_user = db.query(User).filter(User.id == post.user_id).first()
+    if not other_user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if other_user.id != current_user.id:
         await manager.send_to_user(
-            str(),
+            str(other_user.id),
             {
                 "type": "new_like",
                 "like_author": f"{current_user.first_name} {current_user.last_name}",
@@ -234,10 +254,12 @@ async def create_comment(
     db.commit()
     db.refresh(new_comment)
 
-    other_user_id = db.query(User).filter(User.id == post.user_id).first().id
-    if other_user_id != current_user.id:
+    other_user = db.query(User).filter(User.id == post.user_id).first()
+    if not other_user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if other_user.id != current_user.id:
         await manager.send_to_user(
-            str(db.query(User).filter(User.id == post.user_id).first().id),
+            str(other_user.id),
             {
                 "type": "new_comment",
                 "comment_author": f"{current_user.first_name} {current_user.last_name}",
@@ -246,7 +268,12 @@ async def create_comment(
         )
 
     return PostCommentOut(
-        author=current_user,
+        author=PostCommentAuthor(
+            id=current_user.id,
+            first_name=current_user.first_name,
+            last_name=current_user.last_name,
+            avatar_url=current_user.avatar_url,
+        ),
         content=new_comment.content,
         created_at=new_comment.created_at,
     )
