@@ -3,6 +3,7 @@ import json
 import logging
 import os
 from collections import defaultdict
+from termios import VINTR
 from typing import Iterable
 
 import redis.asyncio as redis
@@ -20,6 +21,7 @@ class ConnectionManager:
     def __init__(self, redis_url: str = "redis://localhost:6379"):
         self.active_chats: dict[str, set[WebSocket]] = defaultdict(set)
         self.active_users: dict[str, WebSocket] = {}
+        self.chat_viewers: dict[str, set[str]] = defaultdict(set)
         self._heartbeat_tasks: dict[str, asyncio.Task] = {}
 
         self.redis = redis.from_url(redis_url, decode_responses=True)
@@ -43,20 +45,27 @@ class ConnectionManager:
 
     # chats
 
-    async def connect_to_chat(self, chat_id: str, websocket: WebSocket):
+    async def connect_to_chat(self, chat_id: str, user_id: str, websocket: WebSocket):
         await websocket.accept()
         self.active_chats[chat_id].add(websocket)
+        self.chat_viewers[chat_id].add(user_id)
 
-    async def disconnect_from_chat(self, chat_id: str, websocket: WebSocket):
+    async def disconnect_from_chat(
+        self, chat_id: str, user_id: str, websocket: WebSocket
+    ):
         connections = self.active_chats.get(chat_id)
-        if not connections:
-            return
-        connections.discard(websocket)
-        if not connections:
-            del self.active_chats[chat_id]
+        if connections:
+            connections.discard(websocket)
+            if not connections:
+                del self.active_chats[chat_id]
+        viewers = self.chat_viewers.get(chat_id)
+        if viewers:
+            viewers.discard(user_id)
+            if not viewers:
+                del self.chat_viewers[chat_id]
 
     async def broadcast_to_chat(self, chat_id: str, message: dict):
-        await self.redis.publish(
+        _ = await self.redis.publish(
             "chat_broadcast", json.dumps({"chat_id": chat_id, "message": message})
         )
 
@@ -66,6 +75,10 @@ class ConnectionManager:
                 await ws.send_json(message)
             except Exception:
                 await self.disconnect_from_chat(chat_id, ws)
+
+    async def users_not_in_chat(self, user_ids: list[str], chat_id: str) -> list[str]:
+        viewers = self.chat_viewers.get(chat_id, set())
+        return [user_id for user_id in user_ids if user_id not in viewers]
 
     # users / presence
 
@@ -146,7 +159,7 @@ class ConnectionManager:
         if not unique_user_ids:
             return
 
-        await self.redis.publish(
+        _ = await self.redis.publish(
             "presence_broadcast",
             json.dumps({"user_ids": unique_user_ids, "message": message}),
         )
