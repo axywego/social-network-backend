@@ -169,7 +169,12 @@ def remove_friend(
     if not finded_friendship:
         raise HTTPException(status_code=400, detail="Cannot find that friendship")
 
-    db.delete(finded_friendship)
+    # db.delete(finded_friendship)
+
+    finded_friendship.initiator = finded_user.id
+    finded_friendship.status = "pending"
+    db.commit()
+
     db.commit()
 
     return {"message": "friend removed successful"}

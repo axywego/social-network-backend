@@ -77,6 +77,7 @@ def get_post_out(post: Post, db: Session, current_user: User) -> PostOut:
             id=author.id,
             first_name=author.first_name,
             last_name=author.last_name,
+            avatar_url=author.avatar_url,
         ),
         content=post.content,
         image_url=post.image_url,
@@ -114,6 +115,28 @@ def get_post_image(post_id: int, filename: str, db: Session = Depends(get_db)):
     return FileResponse(filepath)
 
 
+@router.post("/upload_image")
+async def upload_image(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+):
+    ext = os.path.splitext(file.filename)[1].lower()
+    if ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(status_code=400, detail="Unsupported file type")
+
+    contents = await file.read()
+    if len(contents) > MAX_FILE_SIZE:
+        raise HTTPException(status_code=400, detail="File too large")
+
+    filename = f"{uuid.uuid4()}{ext}"
+    filepath = os.path.join(POSTS_IMAGES_DIR, filename)
+
+    with open(filepath, "wb") as f:
+        f.write(contents)
+
+    return {"filename": f"/static/posts/{filename}"}
+
+
 @router.post("/{post_id}/images")
 async def upload_post_image(
     post_id: int,
@@ -142,10 +165,11 @@ async def upload_post_image(
     with open(filepath, "wb") as f:
         f.write(contents)
 
-    post.image_url = f"/static/posts/{filename}"
-    db.commit()
-
-    return {"filename": post.image_url}
+    # файл сохраняем сразу, но yt привязываем к посту здесь - иначе загрузка
+    # фото необратимо меняла бы пост ещё до нажатия "Сохранить" (нельзя было
+    # бы ни отменить редактирование, ни заменить, ни убрать картинку).
+    # привязка происходит в update_post по этому же image_url.
+    return {"filename": f"/static/posts/{filename}"}
 
 
 @router.delete("/{post_id}/delete")
@@ -293,6 +317,11 @@ def update_post(
 
     if not post:
         raise HTTPException(status_code=404, detail="Post not found")
+
+    if post.user_id != current_user.id:
+        raise HTTPException(
+            status_code=403, detail="You haven't access to edit this post"
+        )
 
     post.content = payload.content
     post.image_url = payload.image_url

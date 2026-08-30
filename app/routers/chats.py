@@ -58,7 +58,7 @@ async def chat_websocket(
         await websocket.close(code=1008)
         return
 
-    await manager.connect_to_chat(str(chat_id), websocket)
+    await manager.connect_to_chat(str(chat_id), str(user.id), websocket)
     try:
         while True:
             data = await websocket.receive_json()
@@ -85,9 +85,9 @@ async def chat_websocket(
                 )
 
     except WebSocketDisconnect:
-        await manager.disconnect_from_chat(str(chat_id), websocket)
+        await manager.disconnect_from_chat(str(chat_id), str(user.id), websocket)
     except Exception:
-        await manager.disconnect_from_chat(str(chat_id), websocket)
+        await manager.disconnect_from_chat(str(chat_id), str(user.id), websocket)
         raise
 
 
@@ -439,8 +439,11 @@ async def send_message(
         .all()
     )
 
+    users_not_in_chat = await manager.users_not_in_chat(
+        [str(m.user_id) for m in chat_members], str(chat_id)
+    )
     await manager.send_to_users(
-        [str(m.user_id) for m in chat_members],
+        [u for u in users_not_in_chat],
         {
             "type": "new_message",
             "chat_id": str(chat_id),
