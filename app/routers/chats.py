@@ -2,7 +2,6 @@ import io
 import os
 import uuid
 from datetime import datetime, timezone
-from typing import Optional
 
 from app.core.dependencies import get_current_user, get_user_from_token
 from app.core.utils import compress_message, decompress_message, get_ordered_pair
@@ -16,6 +15,7 @@ from app.schemes.chats import (
     ChatCreate,
     ChatPreview,
     MessageCreate,
+    MessageEdit,
     MessageOut,
 )
 from app.schemes.users import UserOut
@@ -260,6 +260,7 @@ def get_messages_from_chat(
             image_width=m.image_width,
             image_height=m.image_height,
             created_at=m.created_at,
+            is_edited=m.edited_at is not None,
         )
         for m in finded_messages
     ]
@@ -283,8 +284,8 @@ def get_chat_members(
     return members
 
 
-@router.delete("/{chat_id}/delete/{messsage_id}")
-def delete_message(
+@router.delete("/{chat_id}/delete/{message_id}")
+async def delete_message(
     chat_id: uuid.UUID,
     message_id: int,
     current_user: User = Depends(get_current_user),
@@ -312,7 +313,83 @@ def delete_message(
     db.delete(message)
     db.commit()
 
+    await manager.broadcast_to_chat(
+        str(chat.id),
+        {"type": "message_deleted", "chat_id": str(chat.id), "message_id": message_id},
+    )
+
     return {"message": "Message deleted successful"}
+
+
+@router.patch("/{chat_id}/edit/{message_id}", response_model=MessageOut)
+async def edit_message(
+    chat_id: uuid.UUID,
+    message_id: int,
+    payload: MessageEdit,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    chat = db.query(Chat).filter(Chat.id == chat_id).first()
+    if not chat:
+        raise HTTPException(status_code=404, detail="Chat not found")
+
+    if not is_membership(db, chat.id, current_user.id):
+        raise HTTPException(status_code=403, detail="Not a member of this chat")
+
+    message = (
+        db.query(ChatMessage)
+        .filter(
+            ChatMessage.id == message_id,
+            ChatMessage.user_id == current_user.id,
+            ChatMessage.chat_id == chat.id,
+        )
+        .first()
+    )
+    if not message:
+        raise HTTPException(status_code=404, detail="Message not found")
+
+    if (
+        message.content == compress_message(payload.content)
+        if payload.content
+        else None
+    ) and message.image_url == payload.image_url:
+        return MessageOut(
+            id=message.id,
+            sender_id=message.user_id,
+            content=decompress_message(message.content) if message.content else None,
+            image_url=build_image_url(chat_id, message.image_url),
+            image_width=message.image_width,
+            image_height=message.image_height,
+            created_at=message.created_at,
+            is_edited=message.edited_at is not None,
+        )
+
+    message.content = compress_message(payload.content) if payload.content else None
+    message.image_url = payload.image_url
+    message.edited_at = datetime.now(timezone.utc)
+    db.commit()
+
+    result = MessageOut(
+        id=message.id,
+        sender_id=message.user_id,
+        content=decompress_message(message.content) if message.content else None,
+        image_url=build_image_url(chat_id, message.image_url),
+        image_width=message.image_width,
+        image_height=message.image_height,
+        created_at=message.created_at,
+        is_edited=message.edited_at is not None,
+    )
+
+    await manager.broadcast_to_chat(
+        str(chat.id),
+        {
+            "type": "message_edited",
+            "chat_id": str(chat.id),
+            "message": jsonable_encoder(result),
+        },
+    )
+
+    return result
 
 
 @router.post("/{chat_id}/messages", response_model=MessageOut)
@@ -350,6 +427,7 @@ async def send_message(
         image_width=payload.image_width,
         image_height=payload.image_height,
         created_at=message.created_at,
+        is_edited=message.edited_at is not None,
     )
 
     await manager.broadcast_to_chat(str(chat_id), jsonable_encoder(result))

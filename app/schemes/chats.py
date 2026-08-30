@@ -51,6 +51,12 @@ class MessageOut(BaseModel):
     image_width: int | None = None
     image_height: int | None = None
     created_at: datetime
+    is_edited: bool
+
+
+class MessageEdit(BaseModel):
+    content: str | None = None
+    image_url: str | None = None
 
 
 class Chat(BaseModel):
