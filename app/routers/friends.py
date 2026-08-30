@@ -197,7 +197,18 @@ def get_incoming_requests(
         other_id = f.user2 if f.user1 == current_user.id else f.user1
         other_user = db.query(User).filter(User.id == other_id).first()
         if other_user:
-            result.append(FriendRequestOut(user=other_user, created_at=f.created_at))
+            result.append(
+                FriendRequestOut(
+                    user=FriendOut(
+                        id=other_user.id,
+                        username=other_user.username,
+                        first_name=other_user.first_name,
+                        last_name=other_user.last_name,
+                        avatar_url=other_user.avatar_url,
+                    ),
+                    created_at=f.created_at,
+                )
+            )
 
     return result
 
@@ -224,7 +235,18 @@ def get_outgoing_requests(
         other_id = f.user2 if f.user1 == current_user.id else f.user1
         other_user = db.query(User).filter(User.id == other_id).first()
         if other_user:
-            result.append(FriendRequestOut(user=other_user, created_at=f.created_at))
+            result.append(
+                FriendRequestOut(
+                    user=FriendOut(
+                        id=other_user.id,
+                        username=other_user.username,
+                        first_name=other_user.first_name,
+                        last_name=other_user.last_name,
+                        avatar_url=other_user.avatar_url,
+                    ),
+                    created_at=f.created_at,
+                )
+            )
 
     return result
 
