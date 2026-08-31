@@ -449,7 +449,7 @@ async def send_message(
             "chat_id": str(chat_id),
             "chat_name": chat.name if chat.name else None,
             "sender_name": f"{current_user.first_name} {current_user.last_name}",
-            "message": result.content if payload.content else "Изображение",
+            "message": result.content[:20] if result.content else "Изображение",
             "created_at": result.created_at.isoformat(),
         },
     )
@@ -686,7 +686,7 @@ def get_all_chats(
                 else "Unknown",
                 unread_count=get_unread_count_from_chat(chat.id, current_user.id, db),
                 last_message=(
-                    decompress_message(last_message.content)
+                    decompress_message(last_message.content)[:30]
                     if last_message.content is not None
                     else "Image"
                 )
@@ -718,7 +718,7 @@ def get_all_chats(
                 type=ChatType.GROUP,
                 name=chat.name if chat.name else "chat",
                 last_message=(
-                    decompress_message(last_message.content)
+                    decompress_message(last_message.content)[:30]
                     if last_message.content is not None
                     else "Image"
                 )

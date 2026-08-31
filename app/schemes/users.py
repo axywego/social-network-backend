@@ -1,14 +1,14 @@
 from datetime import date
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class UserChange(BaseModel):
-    first_name: str
-    last_name: str
-    patronymic: str | None = None
-    bio: str | None = None
+    first_name: str = Field(..., min_length=1, max_length=30)
+    last_name: str = Field(..., min_length=1, max_length=30)
+    patronymic: str | None = Field(None, max_length=30)
+    bio: str | None = Field(None, max_length=200)
     birthday: date | None = None
 
 

@@ -1,11 +1,11 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class FriendRequest(BaseModel):
-    target_login: str
+    target_login: str = Field(..., max_length=32)
 
 
 class FriendOut(BaseModel):
