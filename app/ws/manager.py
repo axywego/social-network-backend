@@ -19,7 +19,9 @@ logger = logging.getLogger(__name__)
 
 class ConnectionManager:
     def __init__(self, redis_url: str = "redis://localhost:6379"):
-        self.active_chats: dict[str, set[WebSocket]] = defaultdict(set)
+        self.active_chats: dict[str, dict[WebSocket, str]] = defaultdict(
+            dict
+        )  # chat_id -> ws: user_id
         self.active_users: dict[str, WebSocket] = {}
         self.chat_viewers: dict[str, set[str]] = defaultdict(set)
         self._heartbeat_tasks: dict[str, asyncio.Task] = {}
@@ -47,7 +49,7 @@ class ConnectionManager:
 
     async def connect_to_chat(self, chat_id: str, user_id: str, websocket: WebSocket):
         await websocket.accept()
-        self.active_chats[chat_id].add(websocket)
+        self.active_chats[chat_id][websocket] = user_id
         self.chat_viewers[chat_id].add(user_id)
 
     async def disconnect_from_chat(
@@ -55,7 +57,7 @@ class ConnectionManager:
     ):
         connections = self.active_chats.get(chat_id)
         if connections:
-            connections.discard(websocket)
+            _ = connections.pop(websocket, None)
             if not connections:
                 del self.active_chats[chat_id]
         viewers = self.chat_viewers.get(chat_id)
@@ -70,11 +72,11 @@ class ConnectionManager:
         )
 
     async def _local_broadcast_to_chat(self, chat_id: str, message: dict):
-        for ws in list(self.active_chats.get(chat_id, [])):
+        for ws, user_id in list(self.active_chats.get(chat_id, {}).items()):
             try:
                 await ws.send_json(message)
             except Exception:
-                await self.disconnect_from_chat(chat_id, ws)
+                await self.disconnect_from_chat(chat_id, user_id, ws)
 
     async def users_not_in_chat(self, user_ids: list[str], chat_id: str) -> list[str]:
         viewers = self.chat_viewers.get(chat_id, set())
@@ -104,6 +106,10 @@ class ConnectionManager:
 
     async def connect_to_users(self, user_id: str, websocket: WebSocket, sess: Session):
         await websocket.accept()
+
+        old_task = self._heartbeat_tasks.pop(user_id, None)
+        if old_task:
+            _ = old_task.cancel()
 
         was_offline = await self.redis.sadd("online_users", user_id) == 1
         self.active_users[user_id] = websocket

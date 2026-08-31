@@ -2,7 +2,7 @@ from datetime import datetime
 from enum import Enum
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class ChatType(str, Enum):
@@ -13,7 +13,7 @@ class ChatType(str, Enum):
 class ChatCreate(BaseModel):
     type: ChatType
     user_if_direct: UUID | None = None
-    name: str | None = None
+    name: str | None = Field(None, min_length=1, max_length=100)
 
     @model_validator(mode="after")
     def validate_fields(self):
@@ -55,7 +55,7 @@ class MessageOut(BaseModel):
 
 
 class MessageEdit(BaseModel):
-    content: str | None = None
+    content: str | None = Field(None, max_length=4000)
     image_url: str | None = None
 
 
@@ -67,7 +67,7 @@ class Chat(BaseModel):
 
 
 class MessageCreate(BaseModel):
-    content: str | None = None
+    content: str | None = Field(None, max_length=4000)
     image_url: str | None = None
     image_width: int | None = None
     image_height: int | None = None

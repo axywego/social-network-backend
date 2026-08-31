@@ -2,17 +2,23 @@ from datetime import datetime
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
+from pydantic.functional_validators import model_validator
 
 
 class PostCommentCreate(BaseModel):
     post_id: int
-
-    content: str
+    content: str = Field(..., min_length=1, max_length=2000)
 
 
 class PostCreate(BaseModel):
-    content: str | None = None
+    content: str | None = Field(None, max_length=5000)
     image_url: str | None = None
+
+    @model_validator(mode="after")
+    def check_not_empty(self):
+        if not self.content and not self.image_url:
+            raise ValueError("content or image_url is required")
+        return self
 
 
 class PostCommentAuthor(BaseModel):
@@ -42,8 +48,14 @@ class PostAuthor(BaseModel):
 
 
 class PostUpdate(BaseModel):
-    content: str | None = None
+    content: str | None = Field(None, max_length=5000)
     image_url: str | None = None
+
+    @model_validator(mode="after")
+    def check_not_empty(self):
+        if not self.content and not self.image_url:
+            raise ValueError("content or image_url is required")
+        return self
 
 
 class PostOut(BaseModel):
