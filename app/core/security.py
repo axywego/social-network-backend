@@ -10,6 +10,8 @@ from passlib.context import CryptContext
 _ = load_dotenv()
 
 SECRET_KEY = os.getenv("SECRET_JWT_KEY")
+if not SECRET_KEY:
+    raise ValueError("MISSING CORE ENV VARIABLE: SECRET_KEY")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 15))
 REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", 7))

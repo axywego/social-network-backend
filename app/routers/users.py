@@ -6,7 +6,7 @@ from app.database.session_db import get_db
 from app.models.user import User
 from app.schemes.users import PaginatedUsers, UserChange, UserOut
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
-from sqlalchemy import or_
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -82,7 +82,7 @@ def search_users(
 ):
     search_term = f"%{q.strip()}%"
 
-    base_query = db.query(User).filter(
+    base_query = select(User).where(
         User.id != current_user.id,
         or_(
             User.username.ilike(search_term),
@@ -91,8 +91,12 @@ def search_users(
         ),
     )
 
-    total = base_query.count()
-    users = base_query.order_by(User.username).limit(limit).offset(offset).all()
+    total: int = len(db.execute(base_query).scalars().all())
+    users = (
+        db.execute(base_query.order_by(User.username).limit(limit).offset(offset))
+        .scalars()
+        .all()
+    )
 
     return PaginatedUsers(
         items=[
@@ -120,7 +124,7 @@ def get_user_by_id(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    user = db.query(User).filter(User.id == user_id).first()
+    user = db.get(User, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
@@ -129,4 +133,4 @@ def get_user_by_id(
 
 @router.get("", response_model=list[UserOut])
 def get_users(db: Session = Depends(get_db)):
-    return db.query(User).all()
+    return db.execute(select(User)).scalars().all()

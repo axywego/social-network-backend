@@ -34,7 +34,7 @@ from fastapi import (
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import FileResponse
 from PIL import Image
-from sqlalchemy import func, or_, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
@@ -122,13 +122,13 @@ def build_image_url(chat_id: uuid.UUID, filename: str | None) -> str | None:
 
 def is_membership(db: Session, chat_id: uuid.UUID, user_id: uuid.UUID) -> bool:
     return (
-        db.query(ChatUser)
-        .filter(
-            ChatUser.chat_id == chat_id,
-            ChatUser.user_id == user_id,
-            ChatUser.left_at.is_(None),
-        )
-        .first()
+        db.execute(
+            select(ChatUser).where(
+                ChatUser.chat_id == chat_id,
+                ChatUser.user_id == user_id,
+                ChatUser.left_at.is_(None),
+            )
+        ).scalar_one_or_none()
         is not None
     )
 
@@ -204,15 +204,13 @@ def update_read_mesage(
 def get_unread_count_from_chat(
     chat_id: uuid.UUID, current_user_id: uuid.UUID, db: Session
 ) -> int:
-    chat_user = (
-        db.query(ChatUser)
-        .filter(
+    chat_user = db.execute(
+        select(ChatUser).where(
             ChatUser.chat_id == chat_id,
             ChatUser.user_id == current_user_id,
             ChatUser.left_at.is_(None),
         )
-        .first()
-    )
+    ).scalar_one_or_none()
 
     if not chat_user:
         raise HTTPException(
@@ -221,17 +219,15 @@ def get_unread_count_from_chat(
 
     last_read = chat_user.last_read_message_id or 0
 
-    unread_count = (
-        db.query(func.count(ChatMessage.id))
-        .filter(
+    unread_count = db.execute(
+        select(func.count(ChatMessage.id)).where(
             ChatMessage.chat_id == chat_id,
             ChatMessage.id > last_read,
             or_(ChatMessage.user_id != current_user_id, ChatMessage.user_id.is_(None)),
         )
-        .scalar()
-    )
+    ).scalar()
 
-    return unread_count
+    return unread_count or 0
 
 
 @router.get("/{chat_id}/messages", response_model=list[MessageOut])
@@ -245,11 +241,15 @@ def get_messages_from_chat(
     if not is_membership(db, chat_id, current_user.id):
         raise HTTPException(status_code=403, detail="Not a member of this chat")
 
-    query = db.query(ChatMessage).filter(ChatMessage.chat_id == chat_id)
+    query = select(ChatMessage).where(ChatMessage.chat_id == chat_id)
     if before:
         query = query.filter(ChatMessage.created_at < before)
 
-    finded_messages = query.order_by(ChatMessage.created_at.desc()).limit(limit).all()
+    finded_messages = list(
+        db.execute(query.order_by(ChatMessage.created_at.desc()).limit(limit))
+        .scalars()
+        .all()
+    )
     finded_messages.reverse()
 
     return [
@@ -277,9 +277,12 @@ def get_chat_members(
         raise HTTPException(status_code=403, detail="Not a member of this chat")
 
     members = (
-        db.query(User)
-        .join(ChatUser, ChatUser.user_id == User.id)
-        .filter(ChatUser.chat_id == chat_id, ChatUser.left_at.is_(None))
+        db.execute(
+            select(User)
+            .join(ChatUser, ChatUser.user_id == User.id)
+            .where(ChatUser.chat_id == chat_id, ChatUser.left_at.is_(None))
+        )
+        .scalars()
         .all()
     )
     return members
@@ -292,22 +295,20 @@ async def delete_message(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    chat = db.query(Chat).filter(Chat.id == chat_id).first()
+    chat = db.get(Chat, chat_id)
     if not chat:
         raise HTTPException(status_code=404, detail="Chat not found")
 
     if not is_membership(db, chat_id, current_user.id):
         raise HTTPException(status_code=403, detail="You haven't access to this chat")
 
-    message = (
-        db.query(ChatMessage)
-        .filter(
+    message = db.execute(
+        select(ChatMessage).where(
             ChatMessage.id == message_id,
             ChatMessage.chat_id == chat.id,
             ChatMessage.user_id == current_user.id,
         )
-        .first()
-    )
+    ).scalar_one_or_none()
     if not message:
         raise HTTPException(status_code=404, detail="Message not found")
 
@@ -330,22 +331,20 @@ async def edit_message(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    chat = db.query(Chat).filter(Chat.id == chat_id).first()
+    chat = db.get(Chat, chat_id)
     if not chat:
         raise HTTPException(status_code=404, detail="Chat not found")
 
     if not is_membership(db, chat.id, current_user.id):
         raise HTTPException(status_code=403, detail="Not a member of this chat")
 
-    message = (
-        db.query(ChatMessage)
-        .filter(
+    message = db.execute(
+        select(ChatMessage).where(
             ChatMessage.id == message_id,
             ChatMessage.user_id == current_user.id,
             ChatMessage.chat_id == chat.id,
         )
-        .first()
-    )
+    ).scalar_one_or_none()
     if not message:
         raise HTTPException(status_code=404, detail="Message not found")
 
@@ -378,7 +377,7 @@ async def edit_message(
         image_width=message.image_width,
         image_height=message.image_height,
         created_at=message.created_at,
-        is_edited=message.edited_at is not None,
+        is_edited=True,
     )
 
     await manager.broadcast_to_chat(
@@ -400,7 +399,7 @@ async def send_message(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    chat = db.query(Chat).filter(Chat.id == chat_id).first()
+    chat = db.get(Chat, chat_id)
     if not chat:
         raise HTTPException(status_code=404, detail="Chat not found")
 
@@ -434,8 +433,12 @@ async def send_message(
     await manager.broadcast_to_chat(str(chat_id), jsonable_encoder(result))
 
     chat_members = (
-        db.query(ChatUser)
-        .filter(ChatUser.chat_id == chat_id, ChatUser.user_id != current_user.id)
+        db.execute(
+            select(ChatUser).where(
+                ChatUser.chat_id == chat_id, ChatUser.user_id != current_user.id
+            )
+        )
+        .scalars()
         .all()
     )
 
@@ -463,22 +466,22 @@ def add_user_to_chat(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    chat = db.query(Chat).filter(Chat.id == payload.chat_id).first()
+    chat = db.get(Chat, payload.chat_id)
     if not chat:
         raise HTTPException(status_code=404, detail="Chat not found")
 
     if not is_membership(db, chat.id, current_user.id):
         raise HTTPException(status_code=403, detail="Cannot add user")
 
-    add_user = db.query(User).filter(User.id == payload.user_id).first()
+    add_user = db.get(User, payload.user_id)
     if not add_user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    user_is_added = (
-        db.query(ChatUser)
-        .filter(ChatUser.chat_id == chat.id, ChatUser.user_id == add_user.id)
-        .first()
-    )
+    user_is_added = db.execute(
+        select(ChatUser).where(
+            ChatUser.chat_id == chat.id, ChatUser.user_id == add_user.id
+        )
+    ).scalar_one_or_none()
 
     if user_is_added:
         raise HTTPException(status_code=404, detail="User already added")
@@ -497,22 +500,22 @@ def remove_user_from_chat(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    chat = db.query(Chat).filter(Chat.id == payload.chat_id).first()
+    chat = db.get(Chat, payload.chat_id)
     if not chat:
         raise HTTPException(status_code=404, detail="Chat not found")
 
     if not is_membership(db, chat.id, current_user.id):
         raise HTTPException(status_code=403, detail="Cannot remove user")
 
-    remove_user = db.query(User).filter(User.id == payload.user_id).first()
+    remove_user = db.get(User, payload.user_id)
     if not remove_user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    user_is_added = (
-        db.query(ChatUser)
-        .filter(ChatUser.chat_id == chat.id, ChatUser.user_id == remove_user.id)
-        .first()
-    )
+    user_is_added = db.execute(
+        select(ChatUser).where(
+            ChatUser.chat_id == chat.id, ChatUser.user_id == remove_user.id
+        )
+    ).scalar_one_or_none()
 
     if not user_is_added:
         raise HTTPException(status_code=404, detail="User already removed")
@@ -530,16 +533,14 @@ def get_direct_chat(
     db: Session = Depends(get_db),
 ):
     min_id, max_id = get_ordered_pair(user_id, current_user.id)
-    chat = (
-        db.query(Chat)
-        .filter(Chat.user_a_id == min_id, Chat.user_b_id == max_id)
-        .first()
-    )
+    chat = db.execute(
+        select(Chat).where(Chat.user_a_id == min_id, Chat.user_b_id == max_id)
+    ).scalar_one_or_none()
 
     if not chat:
         raise HTTPException(status_code=404, detail="Chat not found")
 
-    other_user = db.query(User).filter(User.id == user_id).first()
+    other_user = db.get(User, user_id)
 
     if not other_user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -566,21 +567,19 @@ def create_chat(
                 status_code=400, detail="Cannot create a chat with yourself"
             )
 
-        other_user = db.query(User).filter(User.id == payload.user_if_direct).first()
+        other_user = db.get(User, payload.user_if_direct)
         if not other_user:
             raise HTTPException(status_code=400, detail="Cannot find user")
 
         min_id, max_id = get_ordered_pair(current_user.id, payload.user_if_direct)
 
-        existing_chat = (
-            db.query(Chat)
-            .filter(
+        existing_chat = db.execute(
+            select(Chat).where(
                 Chat.type == "direct",
                 Chat.user_a_id == min_id,
                 Chat.user_b_id == max_id,
             )
-            .first()
-        )
+        ).scalar_one_or_none()
 
         if existing_chat:
             raise HTTPException(status_code=400, detail="Chat already exists")
@@ -649,33 +648,38 @@ def create_chat(
 def get_all_chats(
     current_user: User = Depends(get_current_user), db: Session = Depends(get_db)
 ):
-    previews = []
+    previews: list[ChatPreview] = []
 
     direct_chats = (
-        db.query(Chat)
-        .filter(
-            Chat.type == "direct",
-            or_(Chat.user_a_id == current_user.id, Chat.user_b_id == current_user.id),
+        db.execute(
+            select(Chat).where(
+                Chat.type == "direct",
+                or_(
+                    Chat.user_a_id == current_user.id, Chat.user_b_id == current_user.id
+                ),
+            )
         )
+        .scalars()
         .all()
     )
+
     for chat in direct_chats:
         other_user_id = (
             chat.user_b_id if chat.user_a_id == current_user.id else chat.user_a_id
         )
-        other_user = db.query(User).filter(User.id == other_user_id).first()
+        other_user = db.get(User, other_user_id)
 
         if not other_user:
             other_user = User(
                 first_name="Удаленный", last_name="Пользователь", avatar_url=None
             )
 
-        last_message = (
-            db.query(ChatMessage)
-            .filter(ChatMessage.chat_id == chat.id)
+        last_message = db.execute(
+            select(ChatMessage)
+            .where(ChatMessage.chat_id == chat.id)
             .order_by(ChatMessage.created_at.desc())
-            .first()
-        )
+            .limit(1)
+        ).scalar_one_or_none()
 
         previews.append(
             ChatPreview(
@@ -698,18 +702,22 @@ def get_all_chats(
         )
 
     group_chats = (
-        db.query(Chat)
-        .join(ChatUser, ChatUser.chat_id == Chat.id)
-        .filter(Chat.type == "group", ChatUser.user_id == current_user.id)
+        db.execute(
+            select(Chat)
+            .join(ChatUser, ChatUser.chat_id == Chat.id)
+            .where(Chat.type == "group", ChatUser.user_id == current_user.id)
+        )
+        .scalars()
         .all()
     )
+
     for chat in group_chats:
-        last_message = (
-            db.query(ChatMessage)
-            .filter(ChatMessage.chat_id == chat.id)
+        last_message = db.execute(
+            select(ChatMessage)
+            .where(ChatMessage.chat_id == chat.id)
             .order_by(ChatMessage.created_at.desc())
-            .first()
-        )
+            .limit(1)
+        ).scalar_one_or_none()
 
         previews.append(
             ChatPreview(

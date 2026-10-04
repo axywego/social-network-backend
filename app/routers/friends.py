@@ -8,7 +8,7 @@ from app.models.user import User
 from app.schemes.friends import FriendOut, FriendRequest, FriendRequestOut
 from app.ws.manager import manager
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import or_
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 router = APIRouter(prefix="/friends", tags=["friends"])
@@ -20,7 +20,9 @@ async def send_friend_request(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    finded_user = db.query(User).filter(User.username == payload.target_login).first()
+    finded_user = db.execute(
+        select(User).where(User.username == payload.target_login)
+    ).scalar_one_or_none()
 
     if not finded_user:
         raise HTTPException(status_code=400, detail="Cannot find that username")
@@ -30,11 +32,11 @@ async def send_friend_request(
 
     min_user, max_user = get_ordered_pair(current_user.id, finded_user.id)
 
-    existing = (
-        db.query(Friendship)
-        .filter(Friendship.user1 == min_user, Friendship.user2 == max_user)
-        .first()
-    )
+    existing = db.execute(
+        select(Friendship).where(
+            Friendship.user1 == min_user, Friendship.user2 == max_user
+        )
+    ).scalar_one_or_none()
 
     if existing:
         raise HTTPException(
@@ -66,23 +68,23 @@ async def accept_request(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    finded_user = db.query(User).filter(User.username == payload.target_login).first()
+    finded_user = db.execute(
+        select(User).where(User.username == payload.target_login)
+    ).scalar_one_or_none()
 
     if not finded_user:
         raise HTTPException(status_code=400, detail="Cannot find that username")
 
     min_user, max_user = get_ordered_pair(current_user.id, finded_user.id)
 
-    finded_friendship = (
-        db.query(Friendship)
-        .filter(
+    finded_friendship = db.execute(
+        select(Friendship).where(
             Friendship.user1 == min_user,
             Friendship.user2 == max_user,
             Friendship.initiator == finded_user.id,
             Friendship.status == "pending",
         )
-        .first()
-    )
+    ).scalar_one_or_none()
 
     if not finded_friendship:
         raise HTTPException(status_code=400, detail="Cannot find that friendship")
@@ -108,22 +110,22 @@ async def decline_request(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    finded_user = db.query(User).filter(User.username == payload.target_login).first()
+    finded_user = db.execute(
+        select(User).where(User.username == payload.target_login)
+    ).scalar_one_or_none()
 
     if not finded_user:
         raise HTTPException(status_code=400, detail="Cannot find that username")
 
     min_user, max_user = get_ordered_pair(current_user.id, finded_user.id)
 
-    finded_friendship = (
-        db.query(Friendship)
-        .filter(
+    finded_friendship = db.execute(
+        select(Friendship).where(
             Friendship.user1 == min_user,
             Friendship.user2 == max_user,
             Friendship.status == "pending",
         )
-        .first()
-    )
+    ).scalar_one_or_none()
 
     if not finded_friendship:
         raise HTTPException(status_code=400, detail="Cannot find that friendship")
@@ -149,22 +151,22 @@ def remove_friend(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    finded_user = db.query(User).filter(User.username == payload.target_login).first()
+    finded_user = db.execute(
+        select(User).where(User.username == payload.target_login)
+    ).scalar_one_or_none()
 
     if not finded_user:
         raise HTTPException(status_code=400, detail="Cannot find that username")
 
     min_user, max_user = get_ordered_pair(current_user.id, finded_user.id)
 
-    finded_friendship = (
-        db.query(Friendship)
-        .filter(
+    finded_friendship = db.execute(
+        select(Friendship).filter(
             Friendship.user1 == min_user,
             Friendship.user2 == max_user,
             Friendship.status == "accepted",
         )
-        .first()
-    )
+    ).scalar_one_or_none()
 
     if not finded_friendship:
         raise HTTPException(status_code=400, detail="Cannot find that friendship")
@@ -185,22 +187,41 @@ def get_incoming_requests(
     current_user: User = Depends(get_current_user), db: Session = Depends(get_db)
 ):
     friendships = (
-        db.query(Friendship)
-        .filter(
-            or_(
-                Friendship.user1 == current_user.id,
-                Friendship.user2 == current_user.id,
-            ),
-            Friendship.status == "pending",
-            Friendship.initiator != current_user.id,
+        db.execute(
+            select(Friendship).where(
+                or_(
+                    Friendship.user1 == current_user.id,
+                    Friendship.user2 == current_user.id,
+                ),
+                Friendship.status == "pending",
+                Friendship.initiator != current_user.id,
+            )
         )
+        .scalars()
         .all()
     )
 
-    result = []
+    other_users = (
+        db.execute(
+            select(User).where(
+                User.id.in_(
+                    [
+                        f.user1 if f.user1 != current_user.id else f.user2
+                        for f in friendships
+                    ]
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    other_users_lookup: dict[UUID, User] = {u.id: u for u in other_users}
+
+    result: list[FriendRequestOut] = []
     for f in friendships:
         other_id = f.user2 if f.user1 == current_user.id else f.user1
-        other_user = db.query(User).filter(User.id == other_id).first()
+        # other_user = db.query(User).filter(User.id == other_id).first()
+        other_user = other_users_lookup[other_id]
         if other_user:
             result.append(
                 FriendRequestOut(
@@ -223,22 +244,40 @@ def get_outgoing_requests(
     current_user: User = Depends(get_current_user), db: Session = Depends(get_db)
 ):
     friendships = (
-        db.query(Friendship)
-        .filter(
-            or_(
-                Friendship.user1 == current_user.id,
-                Friendship.user2 == current_user.id,
-            ),
-            Friendship.status == "pending",
-            Friendship.initiator == current_user.id,
+        db.execute(
+            select(Friendship).where(
+                or_(
+                    Friendship.user1 == current_user.id,
+                    Friendship.user2 == current_user.id,
+                ),
+                Friendship.status == "pending",
+                Friendship.initiator == current_user.id,
+            )
         )
+        .scalars()
         .all()
     )
 
-    result = []
+    other_users = (
+        db.execute(
+            select(User).where(
+                User.id.in_(
+                    [
+                        f.user1 if f.user1 != current_user.id else f.user2
+                        for f in friendships
+                    ]
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    other_users_lookup: dict[UUID, User] = {u.id: u for u in other_users}
+
+    result: list[FriendRequestOut] = []
     for f in friendships:
         other_id = f.user2 if f.user1 == current_user.id else f.user1
-        other_user = db.query(User).filter(User.id == other_id).first()
+        other_user = other_users_lookup[other_id]
         if other_user:
             result.append(
                 FriendRequestOut(
@@ -263,20 +302,25 @@ def get_friend_count(
     db: Session = Depends(get_db),
 ):
     friendships = (
-        db.query(Friendship)
-        .filter(
-            or_(
-                Friendship.user1 == user_id,
-                Friendship.user2 == user_id,
-            ),
-            Friendship.status == "accepted",
+        db.execute(
+            select(Friendship).where(
+                or_(
+                    Friendship.user1 == user_id,
+                    Friendship.user2 == user_id,
+                ),
+                Friendship.status == "accepted",
+            )
         )
+        .scalars()
         .all()
     )
 
     friend_ids = [f.user2 if f.user1 == user_id else f.user1 for f in friendships]
 
-    friend_count = db.query(User).filter(User.id.in_(friend_ids)).count()
+    friend_count = db.execute(
+        select(func.count(User.id)).where(User.id.in_(friend_ids))
+    ).scalar()
+
     return friend_count
 
 
@@ -287,18 +331,21 @@ def get_friend_list(
     db: Session = Depends(get_db),
 ):
     friendships = (
-        db.query(Friendship)
-        .filter(
-            or_(
-                Friendship.user1 == user_id,
-                Friendship.user2 == user_id,
-            ),
-            Friendship.status == "accepted",
+        db.execute(
+            select(Friendship).where(
+                or_(
+                    Friendship.user1 == user_id,
+                    Friendship.user2 == user_id,
+                ),
+                Friendship.status == "accepted",
+            )
         )
+        .scalars()
         .all()
     )
 
     friend_ids = [f.user2 if f.user1 == user_id else f.user1 for f in friendships]
 
-    friends = db.query(User).filter(User.id.in_(friend_ids)).all()
+    friends = db.execute(select(User).where(User.id.in_(friend_ids))).scalars().all()
+
     return friends

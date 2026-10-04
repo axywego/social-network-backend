@@ -21,7 +21,7 @@ from app.schemes.posts import (
 from app.ws.manager import manager
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
-from sqlalchemy import and_, or_
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 from starlette import status
 
@@ -34,28 +34,42 @@ MAX_FILE_SIZE = 10 * 1024 * 1024
 
 def get_post_out(post: Post, db: Session, current_user: User) -> PostOut:
     comments = (
-        db.query(PostComment)
-        .filter(PostComment.post_id == post.id)
-        .order_by(PostComment.created_at.desc())
+        db.execute(
+            select(PostComment)
+            .where(PostComment.post_id == post.id)
+            .order_by(PostComment.created_at.desc())
+        )
+        .scalars()
         .all()
     )
 
-    author = db.query(User).filter(User.id == post.user_id).first()
+    author = db.get(User, post.user_id)
     if not author:
         raise HTTPException(status_code=404, detail="User not found")
 
-    likes = db.query(PostLike).filter(PostLike.post_id == post.id).count()
+    likes = (
+        db.execute(
+            select(func.count(PostLike.id)).where(PostLike.post_id == post.id)
+        ).scalar()
+        or 0
+    )
 
     liked_by_me = (
-        db.query(PostLike)
-        .filter(PostLike.post_id == post.id, PostLike.user_id == current_user.id)
-        .first()
+        db.execute(
+            select(PostLike).where(
+                PostLike.post_id == post.id, PostLike.user_id == current_user.id
+            )
+        ).scalar_one_or_none()
         is not None
     )
 
     comments_authors = {
         u.id: u
-        for u in db.query(User).filter(User.id.in_([c.user_id for c in comments])).all()
+        for u in db.execute(
+            select(User).where(User.id.in_([c.user_id for c in comments]))
+        )
+        .scalars()
+        .all()
     }
     comments_out = [
         PostCommentOut(
@@ -97,12 +111,14 @@ def get_user_posts(
     user_id: uuid.UUID,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
-):
+) -> int:
     return (
-        db.query(Post)
-        .filter(Post.user_id == user_id)
-        .order_by(Post.created_at.desc())
-        .count()
+        db.execute(
+            select(func.count(Post.id))
+            .where(Post.user_id == user_id)
+            .order_by(Post.created_at.desc())
+        ).scalar()
+        or 0
     )
 
 
@@ -178,7 +194,7 @@ def delete_post(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    post = db.query(Post).filter(Post.id == post_id).first()
+    post = db.get(Post, post_id)
     if not post:
         raise HTTPException(status_code=404, detail="Post not found")
 
@@ -199,15 +215,15 @@ def unlike_post(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    post = db.query(Post).filter(Post.id == post_id).first()
+    post = db.get(Post, post_id)
     if not post:
         raise HTTPException(status_code=404, detail="Post not found")
 
-    liked_post = (
-        db.query(PostLike)
-        .filter(PostLike.post_id == post.id, PostLike.user_id == current_user.id)
-        .first()
-    )
+    liked_post = db.execute(
+        select(PostLike).where(
+            PostLike.post_id == post.id, PostLike.user_id == current_user.id
+        )
+    ).scalar_one_or_none()
 
     if not liked_post:
         raise HTTPException(status_code=400, detail="Post already unliked")
@@ -224,15 +240,15 @@ async def like_post(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    post = db.query(Post).filter(Post.id == post_id).first()
+    post = db.get(Post, post_id)
     if not post:
         raise HTTPException(status_code=404, detail="Post not found")
 
-    liked_post = (
-        db.query(PostLike)
-        .filter(PostLike.post_id == post.id, PostLike.user_id == current_user.id)
-        .first()
-    )
+    liked_post = db.execute(
+        select(PostLike).where(
+            PostLike.post_id == post.id, PostLike.user_id == current_user.id
+        )
+    ).scalar_one_or_none()
 
     if liked_post:
         raise HTTPException(status_code=400, detail="Post already liked")
@@ -241,9 +257,10 @@ async def like_post(
     db.add(new_like)
     db.commit()
 
-    other_user = db.query(User).filter(User.id == post.user_id).first()
+    other_user = db.get(User, post.user_id)
     if not other_user:
         raise HTTPException(status_code=404, detail="User not found")
+
     if other_user.id != current_user.id:
         await manager.send_to_user(
             str(other_user.id),
@@ -266,7 +283,7 @@ async def create_comment(
     if not payload.content:
         raise HTTPException(status_code=400, detail="content is required")
 
-    post = db.query(Post).filter(Post.id == payload.post_id).first()
+    post = db.get(Post, payload.post_id)
     if not post:
         raise HTTPException(status_code=404, detail="Post not found")
 
@@ -278,9 +295,10 @@ async def create_comment(
     db.commit()
     db.refresh(new_comment)
 
-    other_user = db.query(User).filter(User.id == post.user_id).first()
+    other_user = db.get(User, post.user_id)
     if not other_user:
         raise HTTPException(status_code=404, detail="User not found")
+
     if other_user.id != current_user.id:
         await manager.send_to_user(
             str(other_user.id),
@@ -313,7 +331,7 @@ def update_post(
     if not payload.content and not payload.image_url:
         raise HTTPException(status_code=400, detail="Content or image is required")
 
-    post = db.query(Post).filter(Post.id == post_id).first()
+    post = db.get(Post, post_id)
 
     if not post:
         raise HTTPException(status_code=404, detail="Post not found")
@@ -360,30 +378,34 @@ def get_recent_posts(
     db: Session = Depends(get_db),
 ):
     friendships = (
-        db.query(Friendship)
-        .filter(
-            or_(
-                and_(
-                    or_(
-                        Friendship.user1 == current_user.id,
-                        Friendship.user2 == current_user.id,
+        db.execute(
+            select(Friendship).where(
+                or_(
+                    and_(
+                        or_(
+                            Friendship.user1 == current_user.id,
+                            Friendship.user2 == current_user.id,
+                        ),
+                        Friendship.status == "accepted",
                     ),
-                    Friendship.status == "accepted",
+                    Friendship.initiator == current_user.id,
                 ),
-                Friendship.initiator == current_user.id,
-            ),
+            )
         )
+        .scalars()
         .all()
     )
 
     ids = [f.user2 if f.user1 == current_user.id else f.user1 for f in friendships]
     ids.append(current_user.id)
 
-    query = db.query(Post).filter(Post.user_id.in_(ids))
+    query = select(Post).where(Post.user_id.in_(ids))
     if before:
-        query = query.filter(Post.created_at < before)
+        query = query.where(Post.created_at < before)
 
-    posts = query.order_by(Post.created_at.desc()).limit(limit).all()
+    posts = (
+        db.execute(query.order_by(Post.created_at.desc()).limit(limit)).scalars().all()
+    )
 
     return [get_post_out(p, db, current_user) for p in posts]
 
@@ -393,9 +415,12 @@ def get_my_posts(
     current_user: User = Depends(get_current_user), db: Session = Depends(get_db)
 ):
     posts = (
-        db.query(Post)
-        .filter(Post.user_id == current_user.id)
-        .order_by(Post.created_at.desc())
+        db.execute(
+            select(Post)
+            .where(Post.user_id == current_user.id)
+            .order_by(Post.created_at.desc())
+        )
+        .scalars()
         .all()
     )
     return [get_post_out(p, db, current_user) for p in posts]
@@ -408,12 +433,13 @@ def get_user_posts(
     db: Session = Depends(get_db),
 ):
     posts = (
-        db.query(Post)
-        .filter(Post.user_id == user_id)
-        .order_by(Post.created_at.desc())
+        db.execute(
+            select(Post).where(Post.user_id == user_id).order_by(Post.created_at.desc())
+        )
+        .scalars()
         .all()
     )
-    other_user = db.query(User).filter(User.id == user_id).first()
+    other_user = db.get(User, user_id)
     if not other_user:
         raise HTTPException(status_code=404, detail="User not found")
     return [get_post_out(p, db, current_user) for p in posts]

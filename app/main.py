@@ -3,7 +3,16 @@ from contextlib import asynccontextmanager
 
 from app.database.base import Base
 from app.database.session_db import engine
-from app.routers import auth, chats, friends, notifications, posts, users
+from app.routers import (
+    admin,
+    auth,
+    chats,
+    complaints,
+    friends,
+    notifications,
+    posts,
+    users,
+)
 from app.ws.manager import manager
 from dotenv import load_dotenv
 from fastapi import APIRouter, FastAPI
@@ -38,9 +47,9 @@ app.add_middleware(
 app.mount("/api/static", StaticFiles(directory="app/static"), name="static")
 
 
-@app.get("/")
-def home():
-    return {"message": "Hello, World!"}
+# @app.get("/")
+# def home():
+#     return {"message": "Hello, World!"}
 
 
 api = APIRouter(prefix="/api")
@@ -51,5 +60,7 @@ api.include_router(friends.router)
 api.include_router(chats.router)
 api.include_router(posts.router)
 api.include_router(notifications.router)
+api.include_router(admin.router)
+api.include_router(complaints.router)
 
 app.include_router(api)
