@@ -1,6 +1,7 @@
 import hashlib
 from datetime import datetime, timezone
 
+from app.core.dependencies import ban_detail
 from app.core.security import (
     create_access_token,
     create_refresh_token,
@@ -59,6 +60,9 @@ def login(payload: UserLogin, db: Session = Depends(get_db)):
     if not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=400, detail="Incorrect username or password")
 
+    if user.is_banned:
+        raise HTTPException(status_code=403, detail=ban_detail(user, db))
+
     access_token = create_access_token({"sub": str(user.id)})
     raw_refresh_token, hashed_refresh_token, expires_at = create_refresh_token()
 
@@ -87,6 +91,11 @@ def refresh(payload: RefreshRequest, db: Session = Depends(get_db)):
 
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
+
+    if user.is_banned:
+        db.delete(stored_token)
+        db.commit()
+        raise HTTPException(status_code=403, detail=ban_detail(user, db))
 
     db.delete(stored_token)
 

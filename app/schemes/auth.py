@@ -1,6 +1,7 @@
 from datetime import date
 
-from pydantic import BaseModel, Field
+from app.schemes.users import validate_birthday
+from pydantic import BaseModel, Field, field_validator
 
 
 class UserRegister(BaseModel):
@@ -10,6 +11,11 @@ class UserRegister(BaseModel):
     last_name: str = Field(..., min_length=1, max_length=30)
     patronymic: str | None = Field(None, max_length=30)
     birthday: date | None = None
+
+    @field_validator("birthday")
+    @classmethod
+    def _check_birthday(cls, value: date | None) -> date | None:
+        return validate_birthday(value)
 
 
 class UserLogin(BaseModel):

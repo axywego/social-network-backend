@@ -109,6 +109,8 @@ def search_users(
                 bio=u.bio,
                 birthday=u.birthday,
                 avatar_url=u.avatar_url,
+                role=u.role,
+                is_banned=u.is_banned,
             )
             for u in users
         ],

@@ -54,7 +54,7 @@ async def chat_websocket(
     db: Session = Depends(get_db),
 ):
     user = get_user_from_token(token, db)
-    if not user or not is_membership(db, chat_id, user.id):
+    if not user or user.is_banned or not is_membership(db, chat_id, user.id):
         await websocket.close(code=1008)
         return
 
