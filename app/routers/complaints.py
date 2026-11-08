@@ -38,8 +38,6 @@ def create_complaint(
     if not reason:
         raise HTTPException(status_code=404, detail="Reason not found")
 
-    # One open complaint per (sender, reported) pair keeps the admin
-    # queue free of stacked copies of the same report.
     already_exists = db.execute(
         select(Complaint).where(
             Complaint.sender_id == current_user.id,

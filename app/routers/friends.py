@@ -220,7 +220,6 @@ def get_incoming_requests(
     result: list[FriendRequestOut] = []
     for f in friendships:
         other_id = f.user2 if f.user1 == current_user.id else f.user1
-        # other_user = db.query(User).filter(User.id == other_id).first()
         other_user = other_users_lookup[other_id]
         if other_user:
             result.append(

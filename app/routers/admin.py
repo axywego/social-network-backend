@@ -21,12 +21,10 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 
 
 def _revoke_sessions(db: Session, user_id: uuid.UUID) -> None:
-    """Drop refresh tokens so no device can mint a new access token."""
     db.execute(delete(RefreshToken).where(RefreshToken.user_id == user_id))
 
 
 def _push_ban_event(user: User, db: Session) -> None:
-    """Kick the user off live sockets; a banned client gets 403 anyway."""
     reason = None
     if user.banned_reason is not None:
         found = db.get(BanReason, user.banned_reason)
@@ -34,7 +32,6 @@ def _push_ban_event(user: User, db: Session) -> None:
 
     message = {"type": "banned", "reason": reason}
     try:
-        # The endpoint is sync, so the publish goes to the running loop.
         loop = asyncio.get_running_loop()
         loop.create_task(manager.send_to_user(str(user.id), message))
     except RuntimeError:
