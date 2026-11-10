@@ -2,7 +2,7 @@ import uuid
 from datetime import date, datetime
 
 from app.database.base import Base
-from sqlalchemy import Date, DateTime, Index, String, Text, text
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Index, String, Text, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
@@ -24,6 +24,16 @@ class User(Base):
     bio: Mapped[str | None] = mapped_column(String(200))
     birthday: Mapped[date | None] = mapped_column(Date)
     avatar_url: Mapped[str | None] = mapped_column(Text)
+
+    role: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'user'")
+    )  # 'user' | 'admin'
+    is_banned: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
+    banned_reason: Mapped[int | None] = mapped_column(
+        ForeignKey("ban_reasons.id", ondelete="CASCADE")
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()

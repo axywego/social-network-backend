@@ -18,10 +18,10 @@ class Chat(Base):
 
     name: Mapped[str | None] = mapped_column(Text)
 
-    user_a_id: Mapped[uuid.UUID] = mapped_column(
+    user_a_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id")
     )
-    user_b_id: Mapped[uuid.UUID] = mapped_column(
+    user_b_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id")
     )
 

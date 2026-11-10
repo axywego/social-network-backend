@@ -1,6 +1,7 @@
 import hashlib
 from datetime import datetime, timezone
 
+from app.core.dependencies import ban_detail
 from app.core.security import (
     create_access_token,
     create_refresh_token,
@@ -17,6 +18,7 @@ from app.schemes.auth import (
     UserRegister,
 )
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -24,7 +26,9 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 @router.post("/register", status_code=status.HTTP_201_CREATED)
 def register(payload: UserRegister, db: Session = Depends(get_db)):
-    existing_user = db.query(User).filter(User.username == payload.username).first()
+    existing_user = db.execute(
+        select(User).where(User.username == payload.username)
+    ).scalar_one_or_none()
 
     if existing_user:
         raise HTTPException(status_code=400, detail="User already exists")
@@ -46,10 +50,18 @@ def register(payload: UserRegister, db: Session = Depends(get_db)):
 
 @router.post("/login", response_model=AccessTokenResponse)
 def login(payload: UserLogin, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.username == payload.username).first()
+    user = db.execute(
+        select(User).where(User.username == payload.username)
+    ).scalar_one_or_none()
 
-    if not user or not verify_password(payload.password, user.password_hash):
+    if not user:
         raise HTTPException(status_code=400, detail="Incorrect username or password")
+
+    if not verify_password(payload.password, user.password_hash):
+        raise HTTPException(status_code=400, detail="Incorrect username or password")
+
+    if user.is_banned:
+        raise HTTPException(status_code=403, detail=ban_detail(user, db))
 
     access_token = create_access_token({"sub": str(user.id)})
     raw_refresh_token, hashed_refresh_token, expires_at = create_refresh_token()
@@ -68,17 +80,22 @@ def login(payload: UserLogin, db: Session = Depends(get_db)):
 def refresh(payload: RefreshRequest, db: Session = Depends(get_db)):
     token_hash = hashlib.sha256(payload.refresh_token.encode()).hexdigest()
 
-    stored_token = (
-        db.query(RefreshToken).filter(RefreshToken.token_hash == token_hash).first()
-    )
+    stored_token = db.execute(
+        select(RefreshToken).where(RefreshToken.token_hash == token_hash)
+    ).scalar_one_or_none()
 
     if not stored_token or stored_token.expires_at < datetime.now(timezone.utc):
         raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
 
-    user = db.query(User).filter(User.id == stored_token.user_id).first()
+    user = db.get(User, stored_token.user_id)
 
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
+
+    if user.is_banned:
+        db.delete(stored_token)
+        db.commit()
+        raise HTTPException(status_code=403, detail=ban_detail(user, db))
 
     db.delete(stored_token)
 
@@ -99,9 +116,9 @@ def refresh(payload: RefreshRequest, db: Session = Depends(get_db)):
 def logout(payload: RefreshRequest, db: Session = Depends(get_db)):
     token_hash = hashlib.sha256(payload.refresh_token.encode()).hexdigest()
 
-    stored_token = (
-        db.query(RefreshToken).filter(RefreshToken.token_hash == token_hash).first()
-    )
+    stored_token = db.execute(
+        select(RefreshToken).where(RefreshToken.token_hash == token_hash)
+    ).scalar_one_or_none()
 
     if stored_token:
         db.delete(stored_token)

@@ -18,7 +18,7 @@ async def notifications_websocket(
     websocket: WebSocket, token: str = Query(...), db: Session = Depends(get_db)
 ):
     user = get_user_from_token(token, db)
-    if not user:
+    if not user or user.is_banned:
         await websocket.close(code=1008)
         return
 

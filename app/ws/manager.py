@@ -3,7 +3,6 @@ import json
 import logging
 import os
 from collections import defaultdict
-from termios import VINTR
 from typing import Iterable
 
 import redis.asyncio as redis
