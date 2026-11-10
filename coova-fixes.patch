@@ -1,0 +1,152 @@
+diff --git a/app/main.py b/app/main.py
+index 6631c0a..3b485d4 100644
+--- a/app/main.py
++++ b/app/main.py
+@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
+ 
+ from app.database.base import Base
+ from app.database.session_db import engine
++from app.models.ban_reason import BanReason
+ from app.routers import (
+     admin,
+     auth,
+@@ -18,14 +19,34 @@ from dotenv import load_dotenv
+ from fastapi import APIRouter, FastAPI
+ from fastapi.middleware.cors import CORSMiddleware
+ from fastapi.staticfiles import StaticFiles
++from sqlalchemy import select
++from sqlalchemy.orm import Session
+ 
+ Base.metadata.create_all(bind=engine)
+ 
+ 
++DEFAULT_BAN_REASONS = [
++    "Спам",
++    "Оскорбления и травля",
++    "Мошенничество",
++    "Неприемлемый контент",
++    "Фейковый аккаунт",
++]
++
++
++def seed_ban_reasons() -> None:
++    with Session(engine) as db:
++        if db.execute(select(BanReason.id).limit(1)).first() is None:
++            db.add_all([BanReason(note=note) for note in DEFAULT_BAN_REASONS])
++            db.commit()
++
++
+ @asynccontextmanager
+ async def lifespan(app: FastAPI):
+     import asyncio
+ 
++    seed_ban_reasons()
++
+     task = asyncio.create_task(manager.start_listener())
+     yield
+     task.cancel()
+diff --git a/app/models/ban_reason.py b/app/models/ban_reason.py
+index 994087d..3b974a1 100644
+--- a/app/models/ban_reason.py
++++ b/app/models/ban_reason.py
+@@ -1,5 +1,3 @@
+-import uuid
+-
+ from app.database.base import Base
+ from sqlalchemy import Integer, Text
+ from sqlalchemy.orm import Mapped, mapped_column
+@@ -8,6 +6,6 @@ from sqlalchemy.orm import Mapped, mapped_column
+ class BanReason(Base):
+     __tablename__ = "ban_reasons"
+ 
+-    id: Mapped[uuid.UUID] = mapped_column(Integer, primary_key=True, autoincrement=True)
++    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+ 
+     note: Mapped[str] = mapped_column(Text)
+diff --git a/app/models/chat.py b/app/models/chat.py
+index 366ab23..ef9d8ff 100644
+--- a/app/models/chat.py
++++ b/app/models/chat.py
+@@ -18,10 +18,10 @@ class Chat(Base):
+ 
+     name: Mapped[str | None] = mapped_column(Text)
+ 
+-    user_a_id: Mapped[uuid.UUID] = mapped_column(
++    user_a_id: Mapped[uuid.UUID | None] = mapped_column(
+         UUID(as_uuid=True), ForeignKey("users.id")
+     )
+-    user_b_id: Mapped[uuid.UUID] = mapped_column(
++    user_b_id: Mapped[uuid.UUID | None] = mapped_column(
+         UUID(as_uuid=True), ForeignKey("users.id")
+     )
+ 
+diff --git a/app/models/chat_user.py b/app/models/chat_user.py
+index d7d52b4..0b95c7b 100644
+--- a/app/models/chat_user.py
++++ b/app/models/chat_user.py
+@@ -27,7 +27,7 @@ class ChatUser(Base):
+     )
+ 
+     last_read_message_id: Mapped[int | None] = mapped_column(
+-        BigInteger, ForeignKey("chat_message.id")
++        BigInteger, ForeignKey("chat_message.id", ondelete="SET NULL")
+     )
+ 
+     created_at: Mapped[datetime] = mapped_column(
+diff --git a/app/routers/admin.py b/app/routers/admin.py
+index abebdf6..fa994c8 100644
+--- a/app/routers/admin.py
++++ b/app/routers/admin.py
+@@ -1,4 +1,4 @@
+-import asyncio
++import logging
+ import uuid
+ 
+ from app.core.dependencies import get_current_admin
+@@ -11,6 +11,7 @@ from app.models.user import User
+ from app.schemes.complaints import ComplaintOut
+ from app.schemes.users import UserOut
+ from app.ws.manager import manager
++from anyio import from_thread
+ from fastapi import APIRouter, Depends, HTTPException
+ from fastapi_pagination import Page, Params
+ from fastapi_pagination.ext.sqlalchemy import paginate
+@@ -32,10 +33,10 @@ def _push_ban_event(user: User, db: Session) -> None:
+ 
+     message = {"type": "banned", "reason": reason}
+     try:
+-        loop = asyncio.get_running_loop()
+-        loop.create_task(manager.send_to_user(str(user.id), message))
+-    except RuntimeError:
+-        pass
++        # эндпоинт синхронный и выполняется в потоке: отправляем в главный цикл событий
++        from_thread.run(manager.send_to_user, str(user.id), message)
++    except Exception:
++        logging.getLogger(__name__).exception("Не удалось отправить событие бана")
+ 
+ 
+ @router.post("/complaints/{complaint_id}", dependencies=[(Depends(get_current_admin))])
+diff --git a/app/routers/users.py b/app/routers/users.py
+index 21a1c88..716921a 100644
+--- a/app/routers/users.py
++++ b/app/routers/users.py
+@@ -132,7 +132,3 @@ def get_user_by_id(
+ 
+     return user
+ 
+-
+-@router.get("", response_model=list[UserOut])
+-def get_users(db: Session = Depends(get_db)):
+-    return db.execute(select(User)).scalars().all()
+diff --git a/app/ws/manager.py b/app/ws/manager.py
+index d3dd8b7..b197a9b 100644
+--- a/app/ws/manager.py
++++ b/app/ws/manager.py
+@@ -3,7 +3,6 @@ import json
+ import logging
+ import os
+ from collections import defaultdict
+-from termios import VINTR
+ from typing import Iterable
+ 
+ import redis.asyncio as redis

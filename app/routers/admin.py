@@ -1,4 +1,4 @@
-import asyncio
+import logging
 import uuid
 
 from app.core.dependencies import get_current_admin
@@ -11,6 +11,7 @@ from app.models.user import User
 from app.schemes.complaints import ComplaintOut
 from app.schemes.users import UserOut
 from app.ws.manager import manager
+from anyio import from_thread
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi_pagination import Page, Params
 from fastapi_pagination.ext.sqlalchemy import paginate
@@ -32,10 +33,10 @@ def _push_ban_event(user: User, db: Session) -> None:
 
     message = {"type": "banned", "reason": reason}
     try:
-        loop = asyncio.get_running_loop()
-        loop.create_task(manager.send_to_user(str(user.id), message))
-    except RuntimeError:
-        pass
+        # эндпоинт синхронный и выполняется в потоке: отправляем в главный цикл событий
+        from_thread.run(manager.send_to_user, str(user.id), message)
+    except Exception:
+        logging.getLogger(__name__).exception("Не удалось отправить событие бана")
 
 
 @router.post("/complaints/{complaint_id}", dependencies=[(Depends(get_current_admin))])

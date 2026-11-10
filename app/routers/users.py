@@ -132,7 +132,3 @@ def get_user_by_id(
 
     return user
 
-
-@router.get("", response_model=list[UserOut])
-def get_users(db: Session = Depends(get_db)):
-    return db.execute(select(User)).scalars().all()
