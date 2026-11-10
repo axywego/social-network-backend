@@ -27,7 +27,7 @@ class ChatUser(Base):
     )
 
     last_read_message_id: Mapped[int | None] = mapped_column(
-        BigInteger, ForeignKey("chat_message.id")
+        BigInteger, ForeignKey("chat_message.id", ondelete="SET NULL")
     )
 
     created_at: Mapped[datetime] = mapped_column(
